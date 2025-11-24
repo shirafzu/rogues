@@ -146,6 +146,17 @@ class MainScene extends Phaser.Scene {
     // ScentManagerを初期化
     this.scentManager = new ScentManager(this);
 
+    // MinimapManagerを初期化
+    this.minimapManager = new MinimapManager(this, {
+      biomeGenerator: this.worldManager.chunkManager.biomeGenerator,
+      worldManager: this.worldManager,
+      width: 200,
+      height: 200,
+      zoom: 0.05,
+      scale: 500 // 1px = 500 world units (100,000 x 100,000の範囲を表示)
+    });
+    this.minimapManager.create();
+
     // UIManagerを初期化
     this.uiManager = new UIManager(this, {
       inventory: this.inventory,
@@ -257,6 +268,11 @@ class MainScene extends Phaser.Scene {
 
     // ScentManagerの更新
     this.scentManager?.update(time, delta);
+
+    // ミニマップの更新
+    if (this.minimapManager && this.playerController && this.playerController.sprite) {
+      this.minimapManager.update(time, delta, this.playerController.sprite.x, this.playerController.sprite.y);
+    }
 
     // 入力ビジュアライゼーションの更新
     if (this.playerController && this.uiManager) {
