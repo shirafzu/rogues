@@ -5,7 +5,7 @@ class CombatSystem {
     this.getCrates = options.getCrates || (() => []);
     this.knockbackSpeed = options.knockbackSpeed ?? 8;
     this.knockbackDuration = options.knockbackDuration ?? 180;
-    this.onCrateRemoved = options.onCrateRemoved || (() => {});
+    this.onCrateRemoved = options.onCrateRemoved || (() => { });
     this.igniteHandler = options.igniteHandler || null;
     this.onCrateDestroyed = options.onCrateDestroyed || null;
   }
@@ -50,6 +50,34 @@ class CombatSystem {
         this.igniteEntity(crate);
       }
     });
+  }
+
+  handleEnemyAttackArea(area) {
+    if (!area || area.type !== "circle") return;
+    const { centerX, centerY, radius } = area;
+    const damage = area.damage ?? 1;
+
+    // プレイヤーへのダメージ判定
+    if (!this.playerController || !this.playerController.sprite || !this.playerController.sprite.active) {
+      return;
+    }
+
+    const player = this.playerController.sprite;
+    const dx = player.x - centerX;
+    const dy = player.y - centerY;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance <= radius) {
+      this.playerController.takeDamage(damage);
+
+      // ノックバック
+      if (distance > 0) {
+        const nx = dx / distance;
+        const ny = dy / distance;
+        player.setVelocity(nx * this.knockbackSpeed, ny * this.knockbackSpeed);
+        player.setData("knockbackUntil", this.scene.time.now + this.knockbackDuration);
+      }
+    }
   }
 
   damageEnemySprite(enemySprite, amount) {

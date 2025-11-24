@@ -30,6 +30,55 @@ const RESOURCE_DEFINITIONS = {
     maxStack: 10,
     weight: 0.5,
   },
+  campfire_kit: {
+    id: "campfire_kit",
+    name: "Campfire Kit",
+    description: "Create a temporary safe zone with regen aura.",
+    maxStack: 5,
+    weight: 2,
+  },
+  health_salve: {
+    id: "health_salve",
+    name: "Health Salve",
+    description: "Single-use heal that restores moderate HP.",
+    maxStack: 5,
+    weight: 0.5,
+  },
+  arrow_bundle: {
+    id: "arrow_bundle",
+    name: "Arrow Bundle",
+    description: "Replenish ammo for ranged presets.",
+    maxStack: 5,
+    weight: 1,
+  },
+  stone: {
+    id: "stone",
+    name: "Stone",
+    description: "Hard rock suitable for tools or throwing.",
+    maxStack: 20,
+    weight: 1.5,
+  },
+  fiber: {
+    id: "fiber",
+    name: "Fiber",
+    description: "Tough plant fibers for binding.",
+    maxStack: 20,
+    weight: 0.1,
+  },
+  throwing_stone: {
+    id: "throwing_stone",
+    name: "Throwing Stone",
+    description: "Simple ranged weapon.",
+    maxStack: 10,
+    weight: 0.5,
+  },
+  spike_trap: {
+    id: "spike_trap",
+    name: "Spike Trap",
+    description: "Placeable trap that damages enemies.",
+    maxStack: 5,
+    weight: 2,
+  },
 };
 
 const QUICK_CRAFT_RECIPES = [
@@ -50,6 +99,18 @@ const QUICK_CRAFT_RECIPES = [
     name: "Arrow Bundle",
     description: "Replenish ammo for ranged presets.",
     costs: { wood: 1, scrap: 2 },
+  },
+  {
+    id: "throwing_stone",
+    name: "Throwing Stone",
+    description: "Simple ranged weapon.",
+    costs: { stone: 1 },
+  },
+  {
+    id: "spike_trap",
+    name: "Spike Trap",
+    description: "Placeable trap that damages enemies.",
+    costs: { wood: 2, scrap: 1 },
   },
 ];
 
@@ -73,7 +134,7 @@ class InventorySystem {
   }
 
   addChangeListener(listener) {
-    if (typeof listener !== "function") return () => {};
+    if (typeof listener !== "function") return () => { };
     this.changeListeners.add(listener);
     return () => {
       this.changeListeners.delete(listener);
@@ -199,6 +260,71 @@ class InventorySystem {
       minSpeedMultiplier: this.minSpeedMultiplier,
       movementMultiplier: multiplier,
     };
+  }
+
+  /**
+   * アイテムをクラフトする
+   * @param {string} recipeId
+   * @returns {boolean} 成功したかどうか
+   */
+  craftItem(recipeId) {
+    const recipe = QUICK_CRAFT_RECIPES.find((r) => r.id === recipeId);
+    if (!recipe) return false;
+
+    // コスト確認
+    const costs = Object.entries(recipe.costs || {});
+    for (const [resourceId, amount] of costs) {
+      const currentAmount = this.getResourceAmount(resourceId);
+      if (currentAmount < amount) return false;
+    }
+
+    // コスト消費
+    for (const [resourceId, amount] of costs) {
+      this.removeResource(resourceId, amount);
+    }
+
+    // 成果物を付与（現在はリソースとして定義されているもののみ対応）
+    // 将来的には装備品や設置物などの別枠管理が必要になる可能性あり
+    // ここでは簡易的に「成果物がリソース定義にあればリソースとして追加、なければ特殊効果」とする
+    const resultDef = this.getResourceDefinition(recipeId); // レシピID = リソースIDの場合
+    if (resultDef) {
+      this.addResource(recipeId, 1);
+    } else {
+      // リソースでない場合は、呼び出し元で効果を処理するためにイベント発火などが望ましいが
+      // プロトタイプなので一旦コンソールログのみ、または成功として返す
+      console.log(`Crafted special item: ${recipeId}`);
+    }
+
+    this.notifyChange();
+    return true;
+  }
+
+  /**
+   * リソースの所持数を取得
+   */
+  getResourceAmount(resourceId) {
+    return this.slots.reduce((total, slot) => {
+      if (slot && slot.resourceId === resourceId) {
+        return total + slot.quantity;
+      }
+      return total;
+    }, 0);
+  }
+
+  /**
+   * アイテムを持っているか確認
+   */
+  hasItem(itemId, amount = 1) {
+    return this.getResourceAmount(itemId) >= amount;
+  }
+
+  /**
+   * アイテムを消費
+   */
+  consumeItem(itemId, amount = 1) {
+    if (!this.hasItem(itemId, amount)) return false;
+    this.removeResource(itemId, amount);
+    return true;
   }
 }
 

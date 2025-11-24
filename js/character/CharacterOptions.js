@@ -37,6 +37,36 @@ window.AVAILABLE_MOVEMENTS = {
   },
 };
 
+window.AVAILABLE_LONG_DISTANCE_MODES = {
+  none: {
+    name: "None",
+    description: "No long distance travel mode.",
+    abilityFactory: null,
+  },
+  steady: {
+    name: "Steady Sprint",
+    description: "Auto-run at 1.5x speed in swiped direction for long distance travel.",
+    controller: SteadyLongDistanceController,
+    abilityFactory: (character) =>
+      new LongDistanceAbilityWrapper(character, SteadyLongDistanceController, {
+        speedMultiplier: 1.5,
+        autoStopDistance: 1500,
+      }),
+  },
+  accelerating: {
+    name: "Burst Sprint",
+    description: "Auto-run with acceleration (1x to 2x speed) for exploration.",
+    controller: AcceleratingLongDistanceController,
+    abilityFactory: (character) =>
+      new LongDistanceAbilityWrapper(character, AcceleratingLongDistanceController, {
+        minSpeedMultiplier: 1.0,
+        maxSpeedMultiplier: 2.0,
+        accelPerSecond: 3.0,
+        autoStopDistance: 1500,
+      }),
+  },
+};
+
 window.AVAILABLE_DODGES = {
   dash: {
     name: "Quick Dash",

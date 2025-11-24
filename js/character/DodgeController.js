@@ -40,6 +40,12 @@ class DodgeController {
   update(delta) {
     if (!this.isDodgeActive) return;
 
+    // spriteが破壊されている場合は回避を終了
+    if (!this.character.sprite || !this.character.sprite.active) {
+      this.isDodgeActive = false;
+      return;
+    }
+
     this.elapsed += delta;
     const t = Math.min(this.elapsed / this.config.duration, 1);
     const moveDist = this.config.distance * t;
@@ -77,6 +83,13 @@ class AcceleratingDodgeController extends DodgeController {
 
   update(delta) {
     if (!this.isDodgeActive) return;
+
+    // spriteが破壊されている場合は回避を終了
+    if (!this.character.sprite || !this.character.sprite.active) {
+      this.isDodgeActive = false;
+      return;
+    }
+
     this.elapsed += delta;
     const t = Math.min(this.elapsed / this.config.duration, 1);
     const eased = t * t;
@@ -138,6 +151,12 @@ class ChainImpactDodgeController extends DodgeController {
   }
 
   update(delta) {
+    // spriteが破壊されている場合は回避を終了
+    if (!this.character.sprite || !this.character.sprite.active) {
+      this.finishChain();
+      return;
+    }
+
     if (!this.isDodgeActive || !this.currentTarget || !this.currentTarget.active) {
       if (this.isDodgeActive && (!this.currentTarget || !this.currentTarget.active)) {
         this.finishChain();
@@ -208,6 +227,14 @@ class BlinkDodgeController extends DodgeController {
 
   update(delta) {
     if (!this.isDodgeActive) return;
+
+    // spriteが破壊されている場合は回避を終了
+    if (!this.character.sprite || !this.character.sprite.active) {
+      this.isDodgeActive = false;
+      this.phase = "idle";
+      return;
+    }
+
     this.elapsed += delta;
 
     if (this.phase === "pre" && this.elapsed >= this.preDelay) {

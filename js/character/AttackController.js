@@ -37,8 +37,11 @@ class MeleeAoEAttackController extends AttackController {
   requestAttack(pointer) {
     if (!this.canAttack()) return false;
 
-    this.recordAttackTime();
+    // spriteが破壊されている場合は攻撃できない
     const sprite = this.character.sprite;
+    if (!sprite || !sprite.active) return false;
+
+    this.recordAttackTime();
     const centerX = sprite.x;
     const centerY = sprite.y;
 
@@ -84,6 +87,10 @@ class AlternatingSlashAttackController extends AttackController {
 
   requestAttack() {
     if (!this.canAttack()) return false;
+
+    // spriteが破壊されている場合は攻撃できない
+    if (!this.character.sprite || !this.character.sprite.active) return false;
+
     const combat = this.character.scene.combatSystem;
     if (!combat) return false;
 
@@ -136,6 +143,10 @@ class ProjectileAttackController extends AttackController {
 
   requestAttack() {
     if (!this.canAttack()) return false;
+
+    // spriteが破壊されている場合は攻撃できない
+    if (!this.character.sprite || !this.character.sprite.active) return false;
+
     const combat = this.character.scene.combatSystem;
     if (!combat) return false;
     const target = combat.getNearestEnemySprite(this.character.sprite);

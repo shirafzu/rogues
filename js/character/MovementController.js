@@ -15,7 +15,8 @@ class MovementController {
 class BasicMovementController extends MovementController {
   update() {
     const { sprite, inputState } = this.character;
-    if (!sprite) return;
+    // spriteが存在しない、または破壊されている場合は何もしない
+    if (!sprite || !sprite.active || !sprite.body) return;
 
     if (this.character.isAbilityBlockingMovement?.()) {
       return;
@@ -55,7 +56,8 @@ class AcceleratingMovementController extends MovementController {
 
   update(delta = 0) {
     const { sprite, inputState } = this.character;
-    if (!sprite) return;
+    // spriteが存在しない、または破壊されている場合は何もしない
+    if (!sprite || !sprite.active || !sprite.body) return;
 
     if (this.character.isAbilityBlockingMovement?.()) {
       sprite.setVelocity(0, 0);
@@ -114,7 +116,8 @@ class HoppingMovementController extends MovementController {
 
   update(delta = 0) {
     const { sprite, inputState } = this.character;
-    if (!sprite) return;
+    // spriteが存在しない、または破壊されている場合は何もしない
+    if (!sprite || !sprite.active || !sprite.body) return;
 
     if (this.character.isAbilityBlockingMovement?.()) {
       sprite.setVelocity(0, 0);
@@ -175,7 +178,8 @@ class SeekMovementController extends MovementController {
 
   update() {
     const sprite = this.character.sprite;
-    if (!sprite) return;
+    // spriteが存在しない、または破壊されている場合は何もしない
+    if (!sprite || !sprite.active || !sprite.body) return;
 
     if (this.character.isAbilityBlockingMovement?.()) {
       return;

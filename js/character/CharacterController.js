@@ -10,6 +10,7 @@ class CharacterController {
     const spawnY = options.spawn?.y ?? scene.scale.height / 2;
 
     this.kind = options.kind || "player";
+    this.race = options.race || "human";
     this.baseColor = options.baseColor ?? 0x4caf50;
     this.sprite = this.createSprite(spawnX, spawnY);
 
@@ -20,6 +21,9 @@ class CharacterController {
       onDodgeEnd: () => this.sprite.setAlpha(1),
       onHpChanged: null,
       onDeath: null,
+      onTapInput: null,
+      onFlickInput: null,
+      onLongSwipeInput: null,
     };
     this.callbacks = { ...defaultCallbacks, ...(options.callbacks || {}) };
 
@@ -46,16 +50,59 @@ class CharacterController {
       touchStartTime: 0,
     };
 
+    // 長距離移動の発動距離閾値
+    this.longDistanceTriggerDistance = options.longDistanceTriggerDistance ?? 250;
+
     this.isDeadFlag = false;
+    this.isDestroyed = false;
     this.useInput = options.useInput !== undefined ? options.useInput : true;
     this.abilityMap = options.abilityMap || {};
     this.activeAbilities = new Set();
+    this._entityId = null; // EntityManagerによって設定される
+
+    // ステータスラベル
+    this.statusLabel = this.scene.add
+      .text(0, 0, "", {
+        fontFamily: "sans-serif",
+        fontSize: "12px",
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(100); // キャラクターより手前
+    this.statusLabel.setVisible(false);
 
     this.syncSpriteState();
 
     if (this.useInput) {
       this.setupInputHandlers();
     }
+
+    // AIコントローラーの初期化
+    const AIClass = options.aiController || null;
+    this.aiController = AIClass
+      ? new AIClass(this, options.aiConfig || {})
+      : null;
+
+    // 攻撃コントローラーの初期化（AI用）
+    const AttackClass = options.attackController || null;
+    if (AttackClass) {
+      this.abilityMap["attack"] = new AttackAbilityWrapper(
+        this,
+        AttackClass,
+        options.attackConfig || {}
+      );
+    }
+
+    // サバイバルシステムの初期化
+    if (window.SurvivalSystem && this.kind === "player") {
+      this.survivalSystem = new SurvivalSystem(this, this.race);
+    }
+
+    // Dryad用の状態管理
+    this.isRooting = false;
+    this.rootingTime = 0;
   }
 
   createSprite(x, y) {
@@ -100,9 +147,71 @@ class CharacterController {
     this.abilityMap = map;
   }
 
+  /**
+   * クイックスロットにアイテムをセット
+   */
+  setQuickSlotItem(itemId) {
+    let controller = null;
+
+    if (itemId === "health_salve") {
+      controller = HealingItemController;
+    } else if (itemId === "campfire_kit") {
+      controller = PlaceableItemController;
+    } else if (itemId === "throwing_stone") {
+      controller = ThrowingItemController;
+    } else if (itemId === "spike_trap") {
+      controller = PlaceableItemController;
+    }
+
+    if (controller) {
+      this.abilityMap["item"] = new ItemAbilityWrapper(this, controller, { itemId });
+      console.log(`Set quick slot: ${itemId}`);
+
+      // UI更新通知
+      if (typeof this.callbacks.onQuickSlotChanged === "function") {
+        this.callbacks.onQuickSlotChanged(itemId);
+      }
+    } else {
+      console.warn(`No controller found for item: ${itemId}`);
+      this.clearQuickSlotItem();
+    }
+  }
+
+  /**
+   * クイックスロットをクリア
+   */
+  clearQuickSlotItem() {
+    if (this.abilityMap["item"]) {
+      delete this.abilityMap["item"];
+      console.log("Cleared quick slot");
+      if (typeof this.callbacks.onQuickSlotChanged === "function") {
+        this.callbacks.onQuickSlotChanged(null);
+      }
+    }
+  }
+
+  /**
+   * タップアクションを攻撃に戻す（デフォルト）
+   * ※アイテム使用が別ボタンになったため、これは純粋な武器リセットとして機能
+   */
+  resetTapActionToAttack() {
+    this.abilityMap["tap"] = new AttackAbilityWrapper(this, MeleeAoEAttackController, {
+      radius: 120,
+      cooldown: 250,
+    });
+    console.log("Equipped weapon: Default Attack");
+  }
+
   handlePointerDown(pointer) {
     if (this.isDeadFlag) return;
     if (this.inputState.activePointerId !== null) return;
+
+    // UI上の操作は無視
+    if (this.scene.uiManager && typeof this.scene.uiManager.isPointerOnUI === 'function') {
+      if (this.scene.uiManager.isPointerOnUI(pointer)) {
+        return;
+      }
+    }
 
     this.inputState.activePointerId = pointer.id;
     this.inputState.touchStartPos = { x: pointer.x, y: pointer.y };
@@ -129,12 +238,57 @@ class CharacterController {
     const flickMinDistance = 80;
     const flickMaxDuration = 250;
 
+    // 長距離移動モード中の場合
+    const longDistanceAbility = this.abilityMap?.["longSwipe"];
+    if (longDistanceAbility?.isActive()) {
+      // 短いタップで停止
+      if (distance <= tapMaxDistance && duration <= tapMaxDuration) {
+        longDistanceAbility.stop();
+      }
+      // 長距離移動モード中は指を離しても移動継続
+      this.inputState.activePointerId = null;
+      this.inputState.touchStartPos = null;
+      this.inputState.touchCurrentPos = null;
+      this.inputState.touchStartTime = 0;
+      return;
+    }
+
+    // 入力判定の優先順位
+    // 1. タップ（瞬間・最短距離）
     if (distance <= tapMaxDistance && duration <= tapMaxDuration) {
       const cam = this.scene.cameras.main;
       const worldPoint = cam.getWorldPoint(pointer.x, pointer.y);
       this.triggerAbility("tap", { pointer: worldPoint });
-    } else if (distance >= flickMinDistance && duration <= flickMaxDuration) {
+
+      // UI通知
+      if (typeof this.callbacks.onTapInput === "function") {
+        this.callbacks.onTapInput(worldPoint.x, worldPoint.y);
+      }
+    }
+    // 2. フリック（短時間・短距離）
+    else if (distance >= flickMinDistance && duration <= flickMaxDuration) {
       this.triggerAbility("flick", { direction: { x: dx, y: dy } });
+
+      // UI通知
+      if (typeof this.callbacks.onFlickInput === "function") {
+        const len = Math.hypot(dx, dy);
+        const normalizedDx = len > 0 ? dx / len : 0;
+        const normalizedDy = len > 0 ? dy / len : 0;
+        this.callbacks.onFlickInput(this.sprite.x, this.sprite.y, normalizedDx, normalizedDy);
+      }
+    }
+    // 3. 長距離移動（長距離）
+    else if (distance >= this.longDistanceTriggerDistance) {
+      this.triggerAbility("longSwipe", { direction: { x: dx, y: dy } });
+
+      // UI通知
+      if (typeof this.callbacks.onLongSwipeInput === "function") {
+        const startWorldX = this.sprite.x;
+        const startWorldY = this.sprite.y;
+        const cam = this.scene.cameras.main;
+        const endWorldPoint = cam.getWorldPoint(endPos.x, endPos.y);
+        this.callbacks.onLongSwipeInput(startWorldX, startWorldY, endWorldPoint.x, endWorldPoint.y);
+      }
     }
 
     if (!this.isAbilityBlockingMovement()) {
@@ -175,16 +329,122 @@ class CharacterController {
   }
 
   update(delta) {
+    // エンティティが破壊済みの場合は何もしない
+    if (this.isDestroyed) {
+      return;
+    }
+
+    // spriteが破壊されている場合は何もしない
+    if (!this.sprite || !this.sprite.active) {
+      return;
+    }
+
     if (this.isDeadFlag) {
       this.sprite.setVelocity(0, 0);
       return;
     }
 
     this.updateActiveAbilities(delta);
-    if (this.movementController) {
+
+    // AI更新
+    if (this.aiController) {
+      this.aiController.update(delta);
+    } else if (this.movementController) {
+      // AIがない場合は通常のMovementController（入力依存など）
       this.movementController.update(delta);
     }
+
+    // サバイバルシステム更新
+    if (this.survivalSystem) {
+      this.survivalSystem.update(delta);
+
+      // Dryadの特殊能力: Rooting (根を張る)
+      // 条件: Dryadであること、移動していないこと、水分が十分あること
+      if (this.race === "dryad") {
+        this.handleDryadRooting(delta);
+      }
+    }
+
+    // 移動中なら音を出す（低強度）
+    if (this.movementController && this.movementController.isMoving) {
+      if (Math.random() < 0.05) { // 毎フレームではなく確率で
+        this.emitSound(0.3);
+      }
+      // 匂いを残す
+      this.updateScent(delta);
+    }
+
     this.applyMovementSpeedModifier();
+
+    // ステータスラベルの位置更新
+    if (this.statusLabel && this.statusLabel.visible) {
+      this.statusLabel.setPosition(this.sprite.x, this.sprite.y - 50);
+    }
+  }
+
+  /**
+   * Dryadの根を張る回復処理
+   */
+  handleDryadRooting(delta) {
+    if (!this.sprite || !this.survivalSystem) return;
+
+    const vx = this.sprite.body?.velocity?.x || 0;
+    const vy = this.sprite.body?.velocity?.y || 0;
+    const isMoving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
+
+    // 移動中は根を張れない
+    if (isMoving) {
+      this.isRooting = false;
+      this.rootingTime = 0;
+      return;
+    }
+
+    // 条件チェック: 水分が50%以上あるか
+    const hydration = this.survivalSystem.getStat("hydration");
+    if (!hydration || hydration.current < hydration.max * 0.5) {
+      this.isRooting = false;
+      this.rootingTime = 0;
+      return;
+    }
+
+    // TODO: 明るい場所かどうか、土の上かどうかのチェックを追加
+    // 現在は簡易実装として、停止していれば根を張る
+
+    // 根を張っている状態
+    this.isRooting = true;
+    this.rootingTime += delta;
+
+    // 1秒ごとにHPを回復
+    if (this.rootingTime >= 1000) {
+      this.rootingTime = 0;
+      if (this.hp < this.maxHp) {
+        this.hp = Math.min(this.maxHp, this.hp + 1);
+        if (typeof this.callbacks.onHpChanged === "function") {
+          this.callbacks.onHpChanged(this.hp, this.maxHp);
+        }
+
+        // エフェクト表示
+        const gfx = this.scene.add.circle(this.sprite.x, this.sprite.y, 20, 0x66bb6a, 0.3);
+        this.scene.tweens.add({
+          targets: gfx,
+          scale: 2,
+          alpha: 0,
+          duration: 1000,
+          onComplete: () => gfx.destroy(),
+        });
+      }
+    }
+  }
+
+  updateStatusLabel(text, color = "#ffffff") {
+    if (!this.statusLabel) return;
+    if (!text) {
+      this.statusLabel.setVisible(false);
+      return;
+    }
+    this.statusLabel.setText(text);
+    this.statusLabel.setColor(color);
+    this.statusLabel.setVisible(true);
   }
 
   setInvincibleFor(duration) {
@@ -192,6 +452,48 @@ class CharacterController {
       this.invincibleUntil,
       this.scene.time.now + duration
     );
+  }
+
+  /**
+   * 音を発する（AIが感知するイベント）
+   * @param {number} intensity - 音の大きさ (0.0 - 1.0)
+   */
+  emitSound(intensity) {
+    if (!this.scene || !this.scene.events) return;
+
+    this.scene.events.emit("sound_emitted", {
+      x: this.sprite.x,
+      y: this.sprite.y,
+      intensity: intensity,
+      source: this,
+    });
+  }
+
+  /**
+   * 匂いを残す
+   */
+  updateScent(delta) {
+    if (!this.scene.scentManager) return;
+
+    // 前回の匂い位置からの距離をチェック
+    if (!this.lastScentPos) {
+      this.lastScentPos = { x: this.sprite.x, y: this.sprite.y };
+      this.scene.scentManager.addScentNode(this.sprite.x, this.sprite.y, this);
+      return;
+    }
+
+    const dist = Phaser.Math.Distance.Between(
+      this.sprite.x,
+      this.sprite.y,
+      this.lastScentPos.x,
+      this.lastScentPos.y
+    );
+
+    // 50px移動するごとに匂いを残す
+    if (dist > 50) {
+      this.scene.scentManager.addScentNode(this.sprite.x, this.sprite.y, this);
+      this.lastScentPos = { x: this.sprite.x, y: this.sprite.y };
+    }
   }
 
   takeDamage(amount) {
@@ -222,6 +524,7 @@ class CharacterController {
 
   die() {
     if (this.isDeadFlag) return;
+
     this.isDeadFlag = true;
     this.sprite.setVelocity(0, 0);
     if (this.kind === "player") {
@@ -275,13 +578,58 @@ class CharacterController {
     ) {
       return;
     }
+
+    // 長距離移動中は速度調整をスキップ（長距離コントローラーが速度を管理している）
+    const longDistanceAbility = this.abilityMap?.["longSwipe"];
+    if (longDistanceAbility?.isActive()) {
+      return;
+    }
+
     const velocity = this.sprite.body.velocity;
     const vx = velocity.x;
     const vy = velocity.y;
     if (Math.abs(vx) < 0.001 && Math.abs(vy) < 0.001) {
       return;
     }
-    this.sprite.setVelocity(vx * this.movementSpeedMultiplier, vy * this.movementSpeedMultiplier);
+
+    // setVelocityメソッドの存在確認
+    if (this.sprite.setVelocity) {
+      this.sprite.setVelocity(vx * this.movementSpeedMultiplier, vy * this.movementSpeedMultiplier);
+    }
+  }
+
+  /**
+   * エンティティを破壊してリソースをクリーンアップ
+   * EntityManagerから呼ばれる
+   */
+  destroy() {
+    if (this.isDestroyed) return;
+
+    this.isDestroyed = true;
+
+    // 入力ハンドラーをデタッチ
+    if (this.useInput) {
+      this.detachInputHandlers();
+    }
+
+    // すべてのアクティブなabilityをクリーンアップ
+    if (this.activeAbilities) {
+      this.activeAbilities.clear();
+    }
+
+    // spriteを破壊
+    if (this.sprite) {
+      this.sprite.destroy();
+      this.sprite = null;
+    }
+    if (this.statusLabel) {
+      this.statusLabel.destroy();
+      this.statusLabel = null;
+    }
+
+    // 参照をクリア
+    this.movementController = null;
+    this.abilityMap = null;
   }
 }
 

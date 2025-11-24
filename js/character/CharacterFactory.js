@@ -20,9 +20,16 @@ class CharacterFactory {
       spawn: options.spawn,
       baseColor: options.baseColor ?? 0xf44336,
       damageCooldown: options.damageCooldown ?? 0,
-      callbacks: options.callbacks || {},
+      callbacks: {
+        onAttackArea: (area) => scene.combatSystem?.handleEnemyAttackArea(area),
+        ...(options.callbacks || {}),
+      },
       useInput: options.useInput ?? false,
       kind: "enemy",
+      aiController: options.aiController || SensoryAIController,
+      aiConfig: options.aiConfig || {},
+      attackController: options.attackController || MeleeAoEAttackController,
+      attackConfig: options.attackConfig || {},
     });
 
     return controller;
