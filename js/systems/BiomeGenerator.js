@@ -11,20 +11,40 @@ class BiomeGenerator {
         this.warpNoise = new SimplexNoise(() => rnd.frac());
 
         // マクロスケール設定（大陸レベルの広さ）
-        // 0.00015 -> 0.00002 (約7.5倍拡大)
-        // 1チャンク(1000px) = ノイズ空間で 0.02 の移動
-        // ノイズの周期が ~2.0 とすると、約100チャンク(100,000px)で1周期
         this.baseScale = 0.00002;
 
         // FBM設定
-        this.octaves = 5; // オクターブを増やして詳細度アップ
+        this.octaves = 5;
         this.persistence = 0.5;
         this.lacunarity = 2.0;
 
         // ワーピング（歪み）の設定
-        // 大陸の形を歪ませるため、スケールも大きく、強度も非常に強くする
         this.warpScale = 0.00005;
-        this.warpStrength = 5000; // 5チャンク分の歪み
+        this.warpStrength = 5000;
+
+        // 球面座標設定
+        this.planetRadius = 100000; // 惑星の半径（ワールド単位）
+        this.maxLatitude = 85; // 度数法、±85度が最大（極地氷冠エリア）
+        this.DEG_TO_RAD = Math.PI / 180;
+    }
+
+    // 座標ラッピング（球面座標変換）
+    wrapCoordinates(x, y) {
+        // XY座標を緯度経度に変換
+        const lat = y / this.planetRadius; // 度数法
+        const lon = x / this.planetRadius; // 度数法（簡易版、厳密にはcos(lat)で割る必要あるが負荷軽減のため省略）
+
+        // 経度をラッピング（0-360度）
+        const wrappedLon = ((lon % 360) + 360) % 360;
+
+        // 緯度をクランプ（±85度）
+        const clampedLat = Math.max(-this.maxLatitude, Math.min(this.maxLatitude, lat));
+
+        // ラップ後のXY座標に変換
+        const wrappedX = wrappedLon * this.planetRadius;
+        const wrappedY = clampedLat * this.planetRadius;
+
+        return { x: wrappedX, y: wrappedY, latitude: clampedLat, longitude: wrappedLon };
     }
 
     // FBM (Fractal Brownian Motion) ノイズ生成
@@ -51,27 +71,62 @@ class BiomeGenerator {
         return 1.0 - Math.abs(n);
     }
 
-    getBiome(x, y) {
-        // ドメインワーピング：座標をノイズで大きくずらす
+    // 標高を取得（-1 ~ 1の範囲）
+    getElevation(x, y) {
         const qx = this.warpNoise.noise2D(x * this.warpScale, y * this.warpScale);
         const qy = this.warpNoise.noise2D((x + 5200) * this.warpScale, (y + 1300) * this.warpScale);
-
         const destX = x + qx * this.warpStrength;
         const destY = y + qy * this.warpStrength;
+        return this.fbm(destX + 20000, destY + 20000, this.elevationNoise, 5);
+    }
 
-        // 1. 標高（Elevation）を計算：大陸か海か
-        // 少しオフセットして異なるパターンに
+    // 気温を取得（-1 ~ 1の範囲、標高補正なし）
+    getTemperature(x, y) {
+        const qx = this.warpNoise.noise2D(x * this.warpScale, y * this.warpScale);
+        const qy = this.warpNoise.noise2D((x + 5200) * this.warpScale, (y + 1300) * this.warpScale);
+        const destX = x + qx * this.warpStrength;
+        const destY = y + qy * this.warpStrength;
+        return this.fbm(destX, destY, this.tempNoise, 4);
+    }
+
+    // 湿度を取得（-1 ~ 1の範囲）
+    getMoisture(x, y) {
+        const qx = this.warpNoise.noise2D(x * this.warpScale, y * this.warpScale);
+        const qy = this.warpNoise.noise2D((x + 5200) * this.warpScale, (y + 1300) * this.warpScale);
+        const destX = x + qx * this.warpStrength;
+        const destY = y + qy * this.warpStrength;
+        return this.fbm(destX + 10000, destY + 10000, this.moistNoise, 4);
+    }
+
+    getBiome(x, y) {
+        // 球面座標にラッピング
+        const wrapped = this.wrapCoordinates(x, y);
+        const wx = wrapped.x;
+        const wy = wrapped.y;
+        const latitude = wrapped.latitude;
+
+        // 極地氷冠（緯度85度以上）
+        if (Math.abs(latitude) > this.maxLatitude * 0.98) {
+            return "ice_cap";
+        }
+
+        // ドメインワーピング：座標をノイズで大きくずらす
+        const qx = this.warpNoise.noise2D(wx * this.warpScale, wy * this.warpScale);
+        const qy = this.warpNoise.noise2D((wx + 5200) * this.warpScale, (wy + 1300) * this.warpScale);
+
+        const destX = wx + qx * this.warpStrength;
+        const destY = wy + qy * this.warpStrength;
+
+        // 1. 標高（Elevation）を計算
         const elevation = this.fbm(destX + 20000, destY + 20000, this.elevationNoise, 5);
 
         // 2. リッジノイズ（プレート境界/山脈）
-        // 標高ノイズを再利用して計算コスト削減しつつ、相関を持たせる
-        // あるいは別のノイズを使うか。ここではelevationNoiseをベースに周波数を変えて使う
-        // リッジは「衝突」を表現したいので、elevationが高い場所の近くに走らせるとそれっぽい
-        // ここではシンプルに別のスケールで計算
         const ridge = 1.0 - Math.abs(this.fbm(destX * 2, destY * 2, this.elevationNoise, 4));
 
-        // 3. 気温と湿度
-        const t = this.fbm(destX, destY, this.tempNoise, 4);
+        // 3. 気温（緯度補正あり）と湿度
+        let t = this.fbm(destX, destY, this.tempNoise, 4);
+        // 緯度が高いほど寒くなる（極地付近は-0.02 * 85 = -1.7の補正）
+        t -= Math.abs(latitude) * 0.02;
         const m = this.fbm(destX + 10000, destY + 10000, this.moistNoise, 4);
 
         // --- バイオーム判定ロジック ---
@@ -219,6 +274,14 @@ class BiomeGenerator {
                 enemyDensity: 1.0,
                 residentialChance: 0.0,
                 isDangerous: true, // ダメージ床？
+            },
+            ice_cap: {
+                color: 0xffffff, // 白
+                resourceDensity: 0.0,
+                enemyTypes: [],
+                enemyDensity: 0,
+                residentialChance: 0.0,
+                isImpassable: true, // 通行不可
             },
         };
 
