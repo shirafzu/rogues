@@ -151,11 +151,15 @@ class MainScene extends Phaser.Scene {
       biomeGenerator: this.worldManager.chunkManager.biomeGenerator,
       worldManager: this.worldManager,
       width: 200,
-      height: 200,
-      zoom: 0.05,
-      scale: 500 // 1px = 500 world units (100,000 x 100,000の範囲を表示)
+      height: 200
     });
     this.minimapManager.create();
+
+    // デバッグ用UI（全体マップ）
+    this.terrainDebugUI = new TerrainDebugUI(this, this.worldManager.chunkManager.biomeGenerator);
+
+    // カメラマネージャー
+    this.cameraManager = new CameraManager(this, this.playerController);
 
     // UIManagerを初期化
     this.uiManager = new UIManager(this, {

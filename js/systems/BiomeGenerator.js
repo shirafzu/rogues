@@ -26,6 +26,63 @@ class BiomeGenerator {
         this.planetRadius = 100000; // 惑星の半径（ワールド単位）
         this.maxLatitude = 85; // 度数法、±85度が最大（極地氷冠エリア）
         this.DEG_TO_RAD = Math.PI / 180;
+
+        // プレートテクトニクス設定
+        this.numPlates = 15; // プレートの数
+        this.plates = [];
+        this.generatePlates();
+    }
+
+    generatePlates() {
+        this.plates = [];
+        for (let i = 0; i < this.numPlates; i++) {
+            // ランダムな位置（経度は0-360度、緯度は±80度以内）
+            // 緯度を制限することで極地にプレート中心が来ないようにする
+            const lon = this.rnd.between(0, 360);
+            const lat = this.rnd.between(-70, 70);
+
+            // 座標変換
+            const x = lon * this.planetRadius;
+            const y = lat * this.planetRadius;
+
+            // プレートタイプ（大陸 or 海洋）
+            // 30%が大陸、70%が海洋
+            const type = this.rnd.frac() < 0.3 ? 'continental' : 'oceanic';
+
+            // 移動ベクトル（テクトニクス用）
+            const angle = this.rnd.angle();
+            const speed = this.rnd.between(0.5, 1.5);
+            const vx = Math.cos(angle) * speed;
+            const vy = Math.sin(angle) * speed;
+
+            this.plates.push({
+                id: i,
+                x: x,
+                y: y,
+                lon: lon,
+                lat: lat,
+                type: type,
+                vx: vx,
+                vy: vy,
+                radius: this.rnd.between(20000, 40000) // 影響範囲
+            });
+        }
+        console.log('[BiomeGenerator] Generated plates:', this.plates);
+    }
+
+    // 2点間の距離（経度ラッピング考慮）
+    getWrappedDistance(x1, y1, x2, y2) {
+        const circumference = 360 * this.planetRadius;
+
+        let dx = Math.abs(x1 - x2);
+        // 経度方向の最短距離（ラッピング）
+        if (dx > circumference / 2) {
+            dx = circumference - dx;
+        }
+
+        const dy = Math.abs(y1 - y2);
+
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
     // 座標ラッピング（球面座標変換）
@@ -71,13 +128,92 @@ class BiomeGenerator {
         return 1.0 - Math.abs(n);
     }
 
-    // 標高を取得（-1 ~ 1の範囲）
+    // 標高を取得（プレートテクトニクスベース）
     getElevation(x, y) {
-        const qx = this.warpNoise.noise2D(x * this.warpScale, y * this.warpScale);
-        const qy = this.warpNoise.noise2D((x + 5200) * this.warpScale, (y + 1300) * this.warpScale);
-        const destX = x + qx * this.warpStrength;
-        const destY = y + qy * this.warpStrength;
-        return this.fbm(destX + 20000, destY + 20000, this.elevationNoise, 5);
+        // 1. 最も近いプレートと2番目に近いプレートを探す
+        let d1 = Infinity;
+        let d2 = Infinity;
+        let p1 = null;
+        let p2 = null;
+
+        for (const plate of this.plates) {
+            const dist = this.getWrappedDistance(x, y, plate.x, plate.y);
+            if (dist < d1) {
+                d2 = d1;
+                p2 = p1;
+                d1 = dist;
+                p1 = plate;
+            } else if (dist < d2) {
+                d2 = dist;
+                p2 = plate;
+            }
+        }
+
+        if (!p1) return -1.0; // エラー回避
+
+        // 2. ベース標高（大陸か海洋か）
+        // 中心に近いほど高い (1.0 -> 0.0)
+        // 大陸プレート: 高い (0.2 ~ 1.0)
+        // 海洋プレート: 低い (-1.0 ~ -0.2)
+
+        let baseHeight;
+        const distFactor = 1.0 - Math.min(1.0, d1 / p1.radius); // 0.0(遠い) ~ 1.0(中心)
+
+        if (p1.type === 'continental') {
+            baseHeight = 0.2 + distFactor * 0.8; // 0.2 ~ 1.0
+        } else {
+            baseHeight = -1.0 + distFactor * 0.5; // -1.0 ~ -0.5
+        }
+
+        // 3. テクトニクス相互作用（境界付近）
+        let tectonicMod = 0;
+        if (p2) {
+            const edgeDist = d2 - d1; // 境界に近いほど小さい
+            const edgeThreshold = 10000; // 境界の影響範囲
+
+            if (edgeDist < edgeThreshold) {
+                const edgeFactor = 1.0 - (edgeDist / edgeThreshold); // 1.0(境界) ~ 0.0(遠い)
+
+                // 相対速度ベクトル
+                const rvx = p2.vx - p1.vx;
+                const rvy = p2.vy - p1.vy;
+
+                // 位置ベクトル（p1 -> p2）
+                let dx = p2.x - p1.x;
+                const circumference = 360 * this.planetRadius;
+                if (Math.abs(dx) > circumference / 2) dx -= Math.sign(dx) * circumference; // ラッピング考慮
+                const dy = p2.y - p1.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const nx = dx / len;
+                const ny = dy / len;
+
+                // 衝突判定（内積）: 正なら離れる、負なら近づく
+                const dot = rvx * nx + rvy * ny;
+
+                if (dot < -0.5) {
+                    // 衝突（収束型境界）: 山脈
+                    tectonicMod = edgeFactor * 1.0; // 隆起
+                } else if (dot > 0.5) {
+                    // 分離（発散型境界）: 谷/海溝
+                    tectonicMod = -edgeFactor * 0.8; // 沈降
+                }
+            }
+        }
+
+        // 4. ノイズで詳細を追加
+        const noise = this.fbm(x, y, this.elevationNoise, 5);
+
+        // 最終合成
+        let finalElevation = baseHeight + tectonicMod + noise * 0.2;
+
+        // 極地マスク（緯度が高いほど海/氷にする）
+        const lat = y / this.planetRadius;
+        if (Math.abs(lat) > 60) {
+            const polarFactor = (Math.abs(lat) - 60) / 25; // 0.0 ~ 1.0
+            finalElevation -= polarFactor * 1.5; // 強制的に下げる
+        }
+
+        return finalElevation;
     }
 
     // 気温を取得（-1 ~ 1の範囲、標高補正なし）
@@ -110,76 +246,57 @@ class BiomeGenerator {
             return "ice_cap";
         }
 
-        // ドメインワーピング：座標をノイズで大きくずらす
-        const qx = this.warpNoise.noise2D(wx * this.warpScale, wy * this.warpScale);
-        const qy = this.warpNoise.noise2D((wx + 5200) * this.warpScale, (wy + 1300) * this.warpScale);
+        // 1. 標高（Elevation）を取得（プレートテクトニクス込み）
+        const elevation = this.getElevation(wx, wy);
 
-        const destX = wx + qx * this.warpStrength;
-        const destY = wy + qy * this.warpStrength;
+        // 2. 気温（緯度補正あり）と湿度
+        // ドメインワーピングは getElevation 内では使っていないので、ここでも使わないか、
+        // あるいは getElevation に渡す前にワーピングするか。
+        // 一貫性のため、getElevation 内ではワーピングしていないので、ここでも生の座標を使う。
+        // ただし、詳細なノイズは getElevation 内で足されている。
 
-        // 1. 標高（Elevation）を計算
-        const elevation = this.fbm(destX + 20000, destY + 20000, this.elevationNoise, 5);
-
-        // 2. リッジノイズ（プレート境界/山脈）
-        const ridge = 1.0 - Math.abs(this.fbm(destX * 2, destY * 2, this.elevationNoise, 4));
-
-        // 3. 気温（緯度補正あり）と湿度
-        let t = this.fbm(destX, destY, this.tempNoise, 4);
-        // 緯度が高いほど寒くなる（極地付近は-0.02 * 85 = -1.7の補正）
+        // 気温と湿度のノイズ
+        let t = this.fbm(wx, wy, this.tempNoise, 4);
+        // 緯度が高いほど寒くなる
         t -= Math.abs(latitude) * 0.02;
-        const m = this.fbm(destX + 10000, destY + 10000, this.moistNoise, 4);
+
+        const m = this.fbm(wx + 10000, wy + 10000, this.moistNoise, 4);
 
         // --- バイオーム判定ロジック ---
 
-        // 海（Ocean）：標高が低い場所
-        // 地球の海面比率は7割だが、ゲーム的には陸地多めが良いかも
-        // -0.2 以下を海とする（約40%が海になる想定）
+        // 海（Ocean）
         if (elevation < -0.2) {
-            // 深海と浅瀬を分ける
             if (elevation < -0.6) return "deep_ocean";
             return "ocean";
         }
 
-        // 海岸（Beach）：海の境界
-        if (elevation < -0.15) {
+        // 海岸（Beach）
+        if (elevation < -0.1) { // 少し閾値を上げる
             return "beach";
         }
 
-        // 山脈（Mountain）：リッジが高い場所、かつ陸地
-        // プレート衝突による隆起を表現
-        if (ridge > 0.8) {
-            // 火山（Volcano）：山脈の中でさらに特定の条件（例えば温度が高い）
-            // またはランダムなホットスポット
-            if (ridge > 0.9 && t > 0.5) return "volcano";
-            if (t < -0.3) return "snow_mountain"; // 雪山
+        // 高地・山岳（Mountain）
+        // プレート衝突で隆起した場所は elevation が高くなっているはず
+        if (elevation > 0.5) {
+            if (elevation > 0.8 && t > 0.5) return "volcano"; // 高くて暑い
+            if (t < 0) return "snow_mountain"; // 高くて寒い
             return "mountain";
         }
 
-        // 高地（Highland）：標高が高い場所
-        if (elevation > 0.6) {
-            if (t < 0) return "snow"; // 高いところは寒い
-            return "mountain"; // 岩場
-        }
-
-        // 一般的な陸地バイオーム（気温と湿度で決定）
-        // FBMの結果は概ね -1 ~ 1 だが、中央に寄る傾向がある
-
-        // Temperature (t): High = Hot, Low = Cold
-        // Moisture (m): High = Wet, Low = Dry
-
+        // 一般的な陸地バイオーム
         if (t < -0.2) {
             // Cold
             if (m > 0.1) return "snow";
-            return "wasteland"; // Tundra/Wasteland
+            return "wasteland";
         } else if (t > 0.2) {
             // Hot
             if (m < -0.1) return "desert";
-            if (m > 0.4) return "jungle"; // 湿気が多いとジャングル
+            if (m > 0.4) return "jungle";
             return "forest";
         } else {
             // Moderate
             if (m > 0.2) return "forest";
-            if (m < -0.2) return "wasteland"; // Dry plains
+            if (m < -0.2) return "wasteland";
             return "plains";
         }
     }
