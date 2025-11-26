@@ -104,15 +104,60 @@ class BiomeGenerator {
         return { x: wrappedX, y: wrappedY, latitude: clampedLat, longitude: wrappedLon };
     }
 
-    // FBM (Fractal Brownian Motion) ノイズ生成
+    // ラップされたノイズを取得（smootherstep補間によるC2連続性を保証）
+    wrappedNoise2D(x, y, noiseGen) {
+        const W = this.planetRadius * 360; // ワールド全周
+
+        // xを 0 ~ W の範囲に正規化
+        let nx = x % W;
+        if (nx < 0) nx += W;
+
+        // 補間係数 (0.0 ~ 1.0)
+        const s = nx / W;
+
+        // Smootherstep (Ken Perlin's improved smoothstep)
+        // これにより1次・2次微分が0になり、C2連続性が保証される
+        const t = s * s * s * (s * (s * 6 - 15) + 10);
+
+        // 通常のノイズと、1周分ずらしたノイズをブレンド
+        const n1 = noiseGen.noise2D(nx, y);
+        const n2 = noiseGen.noise2D(nx - W, y);
+
+        return n1 * (1 - t) + n2 * t;
+    }
+
+    // FBM (Fractal Brownian Motion) ノイズ生成（完全ラップ対応版）
     fbm(x, y, noiseGen, octaves = 4, persistence = 0.5, lacunarity = 2.0) {
+        const W = this.planetRadius * 360; // ワールド幅（ワールド座標）
+
         let total = 0;
         let amplitude = 1;
         let frequency = this.baseScale;
         let maxValue = 0;
 
         for (let i = 0; i < octaves; i++) {
-            total += noiseGen.noise2D(x * frequency, y * frequency) * amplitude;
+            // このオクターブでのノイズ空間座標
+            const nx = x * frequency;
+            const ny = y * frequency;
+
+            // ノイズ空間での周期（このオクターブ専用）
+            const period = W * frequency;
+
+            // ノイズ空間でのラッピング処理
+            let px = nx % period;
+            if (px < 0) px += period;
+
+            // 補間係数（このオクターブの周期内での位置）
+            const s = px / period;
+            // Smootherstep補間
+            const t = s * s * s * (s * (s * 6 - 15) + 10);
+
+            // 2つのサンプルを取得して補間
+            const a = noiseGen.noise2D(px, ny);
+            const b = noiseGen.noise2D(px - period, ny);
+            const noiseValue = a * (1 - t) + b * t;
+
+            total += noiseValue * amplitude;
             maxValue += amplitude;
             amplitude *= persistence;
             frequency *= lacunarity;
@@ -122,7 +167,6 @@ class BiomeGenerator {
     }
 
     // リッジノイズ（山脈のような鋭い地形を作る）
-    // 1 - abs(noise) の形
     ridgeNoise(x, y, noiseGen) {
         let n = this.fbm(x, y, noiseGen, 4, 0.5, 2.0);
         return 1.0 - Math.abs(n);
@@ -152,10 +196,6 @@ class BiomeGenerator {
         if (!p1) return -1.0; // エラー回避
 
         // 2. ベース標高（大陸か海洋か）
-        // 中心に近いほど高い (1.0 -> 0.0)
-        // 大陸プレート: 高い (0.2 ~ 1.0)
-        // 海洋プレート: 低い (-1.0 ~ -0.2)
-
         let baseHeight;
         const distFactor = 1.0 - Math.min(1.0, d1 / p1.radius); // 0.0(遠い) ~ 1.0(中心)
 
@@ -200,7 +240,7 @@ class BiomeGenerator {
             }
         }
 
-        // 4. ノイズで詳細を追加
+        // 4. ノイズで詳細を追加（ラップ対応FBMを使用）
         const noise = this.fbm(x, y, this.elevationNoise, 5);
 
         // 最終合成
@@ -241,28 +281,52 @@ class BiomeGenerator {
         const wy = wrapped.y;
         const latitude = wrapped.latitude;
 
+        // ドメインワーピング：座標をノイズで大きくずらす（ラップ対応）
+        const qx = this.wrappedNoise2D(wx * this.warpScale, wy * this.warpScale, this.warpNoise);
+        const qy = this.wrappedNoise2D((wx + 5200) * this.warpScale, (wy + 1300) * this.warpScale, this.warpNoise);
+
+        const destX = wx + qx * this.warpStrength;
+        const destY = wy + qy * this.warpStrength;
+
+        // 1. 標高（Elevation）を計算
+        // getElevation内でfbm(ラップ対応)を使っているが、
+        // ここではワーピング後の座標を渡している。
+        // getElevation自体は生の座標を受け取って内部で距離計算等を行う設計になっている。
+        // しかし、ここでは「ワーピングされた座標」を使って「ノイズによる詳細」を得たい意図があるかもしれないが、
+        // getElevationは「プレートからの距離」がメインなので、ワーピングされた座標を渡すとプレート位置との整合性が取れなくなる可能性がある。
+
+        // 修正方針:
+        // getElevationは「大まかな地形（プレート）」と「詳細ノイズ」を合成している。
+        // ワーピングは「詳細ノイズ」や「バイオーム境界」に効かせたい。
+        // 現在のgetElevation実装では、内部で this.fbm(x, y) を呼んでいる。
+        // なので、getElevation(wx, wy) を呼べば、プレート計算は正確に行われ、ノイズもラップされて乗る。
+        // ドメインワーピングを効かせたいなら、getElevationの引数をずらすのではなく、
+        // getElevation内部のノイズ計算にワーピングを適用する必要がある。
+
+        // とりあえず、getElevation(wx, wy) をそのまま呼ぶのが正解。
+        // 以前のコードでは destX, destY を使っていたが、それは全てがノイズベースだったから。
+        // プレートベースになった今、座標をずらすとプレート中心からの距離がおかしくなる。
+
+        // ただし、バイオームの境界をぐにゃぐにゃにしたいなら、
+        // getElevationの結果に対してノイズを乗せるか、
+        // 気温・湿度の計算にワーピングを使うのが良い。
+
+        const elevation = this.getElevation(wx, wy);
+
+        // 2. 気温・湿度（ワーピング適用）
+        // ここでは destX, destY を使って、気温・湿度の分布を歪ませる
+        let t = this.fbm(destX, destY, this.tempNoise, 4);
+        // 緯度が高いほど寒くなる
+        t -= Math.abs(latitude) * 0.02;
+
+        const m = this.fbm(destX + 10000, destY + 10000, this.moistNoise, 4);
+
+        // --- バイオーム判定ロジック ---
+
         // 極地氷冠（緯度85度以上）
         if (Math.abs(latitude) > this.maxLatitude * 0.98) {
             return "ice_cap";
         }
-
-        // 1. 標高（Elevation）を取得（プレートテクトニクス込み）
-        const elevation = this.getElevation(wx, wy);
-
-        // 2. 気温（緯度補正あり）と湿度
-        // ドメインワーピングは getElevation 内では使っていないので、ここでも使わないか、
-        // あるいは getElevation に渡す前にワーピングするか。
-        // 一貫性のため、getElevation 内ではワーピングしていないので、ここでも生の座標を使う。
-        // ただし、詳細なノイズは getElevation 内で足されている。
-
-        // 気温と湿度のノイズ
-        let t = this.fbm(wx, wy, this.tempNoise, 4);
-        // 緯度が高いほど寒くなる
-        t -= Math.abs(latitude) * 0.02;
-
-        const m = this.fbm(wx + 10000, wy + 10000, this.moistNoise, 4);
-
-        // --- バイオーム判定ロジック ---
 
         // 海（Ocean）
         if (elevation < -0.2) {

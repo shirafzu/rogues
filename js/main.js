@@ -158,8 +158,18 @@ class MainScene extends Phaser.Scene {
     // デバッグ用UI（全体マップ）
     this.terrainDebugUI = new TerrainDebugUI(this, this.worldManager.chunkManager.biomeGenerator);
 
-    // カメラマネージャー
-    this.cameraManager = new CameraManager(this, this.playerController);
+    // CameraManagerを初期化
+    this.cameraManager = new CameraManager(this, {
+      worldManager: this.worldManager,
+      viewportWidth: viewWidth,
+      viewportHeight: viewHeight,
+      worldWidth: 100000, // 無限マップ対応
+      worldHeight: 100000,
+      playerRadius: this.playerRadius,
+      wallThickness: this.wallThickness,
+      interiorFog: this.interiorFog,
+    });
+    this.cameraManager.initialize();
 
     // UIManagerを初期化
     this.uiManager = new UIManager(this, {
