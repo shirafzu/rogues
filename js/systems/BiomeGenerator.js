@@ -232,7 +232,7 @@ class BiomeGenerator {
         return 1.0 - Math.abs(n);
     }
 
-    // 標高を取得（Falloff Map + 低周波ノイズ）
+    // 標高を取得（Falloff Map + 形状ノイズ）
     getElevation(x, y) {
         // 1. 最も近いプレートと2番目に近いプレートを探す
         let d1 = Infinity;
@@ -255,41 +255,49 @@ class BiomeGenerator {
 
         if (!p1) return -1.0;
 
-        // 2. Falloff関数：プレート中心から離れるほど滑らかに高度が下がる
-        // 二次関数で滑らかな減衰を実現
-        const normalizedDist = Math.min(1.0, d1 / p1.radius);
-        const falloff = 1.0 - (normalizedDist * normalizedDist); // x^2減衰
+        // 2. 形状ノイズでFalloffを変調して円形を崩す
+        // 中周波ノイズで大陸の形状に変化を与える
+        const shapeNoise = this.fbm(x, y, this.warpNoise, 4, 0.5, 2.0, 0.00003);
+
+        // Falloffの半径をノイズで変調（±30%）
+        const radiusModulation = 1.0 + shapeNoise * 0.3;
+        const effectiveRadius = p1.radius * radiusModulation;
+
+        // 二次関数で滑らかな減衰
+        const normalizedDist = Math.min(1.0, d1 / effectiveRadius);
+        const falloff = 1.0 - (normalizedDist * normalizedDist);
 
         // 3. プレートタイプに応じたベース高度
         let baseElevation;
         if (p1.type === 'continental') {
-            // 大陸: 中心が高く、端に行くほど低くなる
             baseElevation = -0.1 + falloff * 1.1; // -0.1 ~ 1.0
         } else {
-            // 海洋: 全体的に低い
             baseElevation = -0.8 + falloff * 0.3; // -0.8 ~ -0.5
         }
 
-        // 4. **低周波**ノイズで大陸形状に有機的な変化を加える
-        // 周波数を大幅に下げて滑らかな変化にする
-        const continentalNoise = this.fbm(x, y, this.elevationNoise, 3, 0.5, 2.0, 0.00001); // 極めて低周波
+        // 4. 大陸スケールのノイズ（形状の大まかな変化）
+        // 強度を上げて変化を大きくする
+        const continentalNoise = this.fbm(x, y, this.elevationNoise, 3, 0.5, 2.0, 0.00001);
 
-        // 5. 中周波ノイズで地域的な変化（山や谷）
-        const regionalNoise = this.fbm(x, y, this.warpNoise, 4, 0.5, 2.0, 0.00005); // 低周波
+        // 5. 地域スケールのノイズ（半島や湾を形成）
+        const regionalNoise = this.fbm(x, y, this.warpNoise, 4, 0.5, 2.0, 0.00005);
 
-        // 6. 合成：ベースにノイズを**控えめに**追加
+        // 6. 局所スケールのノイズ（細かい海岸線の変化）
+        const localNoise = this.fbm(x, y, this.elevationNoise, 5, 0.6, 2.3, 0.0002);
+
+        // 7. 合成：ノイズの強度を調整
         let finalElevation = baseElevation
-            + continentalNoise * 0.15  // 大陸形状の変化
-            + regionalNoise * 0.08;    // 地域的な起伏
+            + continentalNoise * 0.35  // 大陸形状（強度UP）
+            + regionalNoise * 0.15     // 地域的な起伏
+            + localNoise * 0.08;       // 細かい変化
 
-        // 7. プレート境界での山脈生成（控えめに）
+        // 8. プレート境界での山脈生成
         if (p2) {
             const edgeDist = d2 - d1;
-            const edgeThreshold = 15000; // 影響範囲を広げて滑らかに
+            const edgeThreshold = 15000;
 
             if (edgeDist < edgeThreshold) {
                 const edgeFactor = 1.0 - (edgeDist / edgeThreshold);
-                // スムーズな減衰曲線
                 const smoothEdge = edgeFactor * edgeFactor;
 
                 const rvx = p2.vx - p1.vx;
@@ -306,21 +314,19 @@ class BiomeGenerator {
                     const dot = rvx * nx + rvy * ny;
 
                     if (dot < -0.3) {
-                        // 収束：山脈（控えめ）
                         finalElevation += smoothEdge * 0.4;
                     } else if (dot > 0.3) {
-                        // 発散：海溝（控えめ）
                         finalElevation -= smoothEdge * 0.3;
                     }
                 }
             }
         }
 
-        // 8. 極地マスク（滑らかに）
+        // 9. 極地マスク
         const lat = y / this.planetRadius;
         if (Math.abs(lat) > 60) {
             const polarFactor = (Math.abs(lat) - 60) / 25;
-            const smoothPolar = polarFactor * polarFactor; // 二次減衰
+            const smoothPolar = polarFactor * polarFactor;
             finalElevation -= smoothPolar * 1.2;
         }
 
