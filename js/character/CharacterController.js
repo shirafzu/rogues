@@ -628,6 +628,10 @@ class CharacterController {
     }
 
     // 参照をクリア
+    if (this.aiController && typeof this.aiController.destroy === 'function') {
+      this.aiController.destroy();
+    }
+    this.aiController = null;
     this.movementController = null;
     this.abilityMap = null;
   }

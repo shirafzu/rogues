@@ -82,8 +82,9 @@ class EntityManager {
         continue;
       }
 
-      // spriteが無効な場合はスキップ
+      // spriteが無効な場合はスキップし、削除対象にする
       if (!entity.sprite || !entity.sprite.active) {
+        this.remove(entity);
         continue;
       }
 
