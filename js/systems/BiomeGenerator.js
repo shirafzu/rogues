@@ -506,42 +506,42 @@ class BiomeGenerator {
             forest: {
                 color: 0x2e7d32,
                 resourceDensity: 0.3,
-                enemyTypes: ['forest_enemy'],
+                enemyTypes: ['rabbit_beastkin', 'dog_beastkin'],
                 enemyDensity: 1,
                 residentialChance: 0.01,
             },
             jungle: {
                 color: 0x1b5e20, // 濃い緑
                 resourceDensity: 0.6, // 資源豊富
-                enemyTypes: ['forest_enemy'], // ジャングル用の敵がいれば変更
+                enemyTypes: ['dog_beastkin'], // ジャングル用の敵がいれば変更
                 enemyDensity: 1.5,
                 residentialChance: 0.0,
             },
             desert: {
                 color: 0xedc9af,
                 resourceDensity: 0.2,
-                enemyTypes: ['desert_enemy'],
+                enemyTypes: ['dog_beastkin'],
                 enemyDensity: 0.5,
                 residentialChance: 0.005,
             },
             snow: {
                 color: 0xe0f7fa,
                 resourceDensity: 0.15,
-                enemyTypes: ['snow_enemy'],
+                enemyTypes: ['rabbit_beastkin'],
                 enemyDensity: 0.5,
                 residentialChance: 0.005,
             },
             wasteland: {
                 color: 0x8b4513,
                 resourceDensity: 0.25,
-                enemyTypes: ['wasteland_enemy'],
+                enemyTypes: ['dog_beastkin'],
                 enemyDensity: 1.5,
                 residentialChance: 0.0,
             },
             plains: {
                 color: 0x90ee90,
                 resourceDensity: 0.2,
-                enemyTypes: ['plains_enemy'],
+                enemyTypes: ['rabbit_beastkin', 'dog_beastkin'],
                 enemyDensity: 0.8,
                 residentialChance: 0.2,
             },

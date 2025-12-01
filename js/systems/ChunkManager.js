@@ -143,37 +143,179 @@ class ChunkManager {
     }
 
     spawnBiomeObjects(chunk) {
-        // スポーン試行回数（チャンクサイズに応じて調整）
-        const attempts = 30;
+        // ObjectDefinitionsの初期化（シングルトン的）
+        if (!this.objectDefinitions) {
+            this.objectDefinitions = new ObjectDefinitions();
+        }
 
-        for (let i = 0; i < attempts; i++) {
-            const ox = chunk.worldX + this.rnd.between(0, this.chunkSize);
-            const oy = chunk.worldY + this.rnd.between(0, this.chunkSize);
+        // 密度ノイズの初期化（初回のみ）
+        if (!this.densityNoise) {
+            this.densityNoise = new SimplexNoise(this.rnd);
+        }
 
-            // その位置のバイオームを取得
-            const biome = this.biomeGenerator.getBiome(ox, oy);
-            const config = this.biomeGenerator.getBiomeConfig(biome);
+        // チャンク内のグリッドポイントでスポーン判定を行う（ランダム散布ではなく、グリッドベースで密度制御）
+        const gridSize = 100; // 100pxごとのグリッド
+        const cols = this.chunkSize / gridSize;
+        const rows = this.chunkSize / gridSize;
 
-            // リソース（木など）のスポーン判定
-            if (this.rnd.frac() < config.resourceDensity * 0.3) {
-                // 簡易的な木（円）
-                const tree = this.scene.add.circle(ox, oy, 15, 0x1b5e20);
-                tree.setDepth(-2);
-                this.scene.matter.add.gameObject(tree, { isStatic: true, shape: { type: 'circle', radius: 15 } });
-                tree.setData('kind', 'terrain');
-                chunk.objects.push(tree);
+        for (let ix = 0; ix < cols; ix++) {
+            for (let iy = 0; iy < rows; iy++) {
+                const ox = chunk.worldX + ix * gridSize + this.rnd.between(0, 20);
+                const oy = chunk.worldY + iy * gridSize + this.rnd.between(0, 20);
+
+                // ノイズによる密度判定 (-1 ~ 1)
+                // スケールを調整して、ある程度の広さの「森」や「平原」を作る
+                const density = this.densityNoise.noise2D(ox * 0.002, oy * 0.002);
+
+                const biome = this.biomeGenerator.getBiome(ox, oy);
+                const config = this.biomeGenerator.getBiomeConfig(biome);
+
+                // 高密度エリア (Density > 0.3) -> セットピースや高密度オブジェクト
+                if (density > 0.3) {
+                    // セットピースのチャンス (少し低めに)
+                    if (this.rnd.frac() < 0.05) {
+                        const setpieceId = this.objectDefinitions.getRandomSetpieceForBiome(biome, this.rnd);
+                        this.spawnSetpiece(chunk, ox, oy, setpieceId);
+                        // セットピースを置いたら周囲のスポーンをスキップする処理入れたいが、簡易的に確率で制御
+                    } else if (this.rnd.frac() < config.resourceDensity * 0.8) {
+                        // 通常オブジェクト（高密度）
+                        const objId = this.objectDefinitions.getRandomObjectForBiome(biome, this.rnd);
+                        this.spawnObject(chunk, ox, oy, objId);
+                    }
+                }
+                // 中密度エリア (-0.2 < Density <= 0.3) -> 通常の散布
+                else if (density > -0.2) {
+                    if (this.rnd.frac() < config.resourceDensity * 0.3) {
+                        const objId = this.objectDefinitions.getRandomObjectForBiome(biome, this.rnd);
+                        this.spawnObject(chunk, ox, oy, objId);
+                    }
+                }
+                // 低密度エリア (Density <= -0.2) -> 開けた場所（ほとんどスポーンしない）
+                else {
+                    if (this.rnd.frac() < 0.01) { // たまにポツンとある
+                        const objId = this.objectDefinitions.getRandomObjectForBiome(biome, this.rnd);
+                        this.spawnObject(chunk, ox, oy, objId);
+                    }
+                }
+
+                // 敵のスポーン（密度に関わらず、しかし密度が高い場所には出にくいとか？）
+                // 今回はシンプルにランダム
+                if (this.rnd.frac() < config.enemyDensity * 0.02) { // グリッドベースなので確率は下げる
+                    const enemyType = this.rnd.pick(config.enemyTypes);
+                    if (this.scene.spawnManager) {
+                        const enemy = this.scene.spawnManager.spawnEnemy(ox, oy, { enemyId: enemyType });
+                        if (enemy && enemy.sprite) {
+                            chunk.objects.push(enemy.sprite);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    spawnSetpiece(chunk, x, y, setpieceId) {
+        const def = this.objectDefinitions.getSetpieceDefinition(setpieceId);
+        if (!def) return;
+
+        // ランダムな回転
+        const rotation = this.rnd.angle();
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
+
+        def.objects.forEach(item => {
+            // 回転を適用
+            const rx = item.x * cos - item.y * sin;
+            const ry = item.x * sin + item.y * cos;
+
+            const finalX = x + rx;
+            const finalY = y + ry;
+
+            // 個別のオブジェクト定義を取得してスポーン
+            // item.id はオブジェクトID
+            const objDef = this.objectDefinitions.getDefinition(item.id);
+            if (objDef) {
+                // セットピース内のオブジェクトはクラスタリングしない（配置が決まっているため）
+                // createSingleObjectを直接呼ぶ
+                this.createSingleObject(chunk, finalX, finalY, objDef, item.id);
+
+                // オブジェクト個別の回転（もしあれば）
+                // 現状 createSingleObject は回転引数を取らないが、必要なら拡張
+                // ruin_wallなどは回転させたい
+                const lastObj = chunk.objects[chunk.objects.length - 1];
+                if (lastObj && item.angle !== undefined) {
+                    lastObj.setRotation(item.angle + rotation);
+                }
+            }
+        });
+    }
+
+    spawnObject(chunk, x, y, objId) {
+        const def = this.objectDefinitions.getDefinition(objId);
+        if (!def) return;
+
+        // Clustering Logic
+        if (def.cluster) {
+            const count = this.rnd.between(def.cluster.min, def.cluster.max);
+            for (let i = 0; i < count; i++) {
+                // Random offset within cluster radius
+                const angle = this.rnd.angle();
+                const dist = this.rnd.between(0, def.cluster.radius);
+                const cx = x + Math.cos(angle) * dist;
+                const cy = y + Math.sin(angle) * dist;
+
+                this.createSingleObject(chunk, cx, cy, def, objId);
+            }
+        } else {
+            this.createSingleObject(chunk, x, y, def, objId);
+        }
+    }
+
+    createSingleObject(chunk, x, y, def, objId) {
+        let obj;
+        if (def.shape === 'circle') {
+            const radius = this.rnd.between(def.radius.min, def.radius.max);
+            obj = this.scene.add.circle(x, y, radius, def.color);
+
+            // Physics
+            const options = {
+                isStatic: def.isStatic,
+                isSensor: def.isSensor || false,
+                friction: def.friction || 0.1,
+                density: def.density || 0.001
+            };
+            this.scene.matter.add.gameObject(obj, { ...options, shape: { type: 'circle', radius: radius } });
+
+        } else if (def.shape === 'rectangle') {
+            const w = this.rnd.between(def.width.min, def.width.max);
+            const h = this.rnd.between(def.height.min, def.height.max);
+            obj = this.scene.add.rectangle(x, y, w, h, def.color);
+
+            if (def.strokeColor) {
+                obj.setStrokeStyle(def.strokeWidth || 2, def.strokeColor);
             }
 
-            // 敵のスポーン判定
-            if (this.rnd.frac() < config.enemyDensity * 0.1) {
-                const enemyType = this.rnd.pick(config.enemyTypes);
-                // 敵生成（簡易的な矩形）
-                const enemy = this.scene.add.rectangle(ox, oy, 30, 30, 0xff0000);
-                this.scene.matter.add.gameObject(enemy, { isStatic: false });
-                enemy.setData('kind', 'enemy');
-                enemy.setData('type', enemyType);
-                chunk.objects.push(enemy);
-            }
+            // Physics
+            const options = {
+                isStatic: def.isStatic,
+                isSensor: def.isSensor || false,
+                friction: def.friction || 0.1,
+                density: def.density || 0.001
+            };
+            this.scene.matter.add.gameObject(obj, { ...options, shape: { type: 'rectangle', width: w, height: h } });
+        }
+
+        if (obj) {
+            // Depth sorting based on y position for pseudo-3D effect
+            // But for now, just keep layers simple. 
+            // Maybe add a slight random offset to depth to prevent z-fighting if overlapping?
+            // Or use y-sorting if the game supports it. 
+            // Current system seems to use explicit depths (-2, -3).
+            obj.setDepth(def.isSensor ? -3 : -2);
+
+            obj.setData('kind', 'terrain');
+            obj.setData('type', def.type);
+            obj.setData('id', objId);
+            chunk.objects.push(obj);
         }
     }
 
