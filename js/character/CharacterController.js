@@ -527,6 +527,12 @@ class CharacterController {
 
     this.isDeadFlag = true;
     this.sprite.setVelocity(0, 0);
+    if (
+      this.aiController &&
+      typeof this.aiController.clearDebugGraphics === "function"
+    ) {
+      this.aiController.clearDebugGraphics();
+    }
     if (this.kind === "player") {
       this.sprite.setFillStyle(0x9e9e9e);
       this.sprite.setAlpha(0.6);
