@@ -52,13 +52,13 @@ class MainScene extends Phaser.Scene {
     // 物理エンジンの詳細設定（衝突検出の改善）
     if (this.matter && this.matter.world) {
       const engine = this.matter.world.engine;
-      // 反復回数をデフォルト値に（動きやすさ優先）
-      engine.positionIterations = 6; // デフォルト: 6
-      engine.velocityIterations = 4; // デフォルト: 4
-      engine.constraintIterations = 2; // デフォルト: 2
-      // Resolverの設定
+      // 貫通許容値を削減（デフォルト: 0.05）
+      engine.positionIterations = 8;
+      engine.velocityIterations = 6;
+      engine.constraintIterations = 3;
+      // Resolverの設定でより厳密な衝突解決を実現
       if (engine.resolver) {
-        engine.resolver.slop = 0.05; // デフォルト値（動きやすさ優先）
+        engine.resolver.slop = 0.03; // デフォルト: 0.05 (貫通抑制と動きやすさのバランス)
       }
       // 衝突検出の品質向上
       if (this.matter.world.localWorld) {
@@ -648,8 +648,16 @@ window.addEventListener("load", () => {
       matter: {
         gravity: { y: 0 }, // トップダウンなので重力はオフ
         debug: false,
-        // デフォルト設定を使用（動きやすさ優先）
+        // 衝突検出の精度を向上
+        positionIterations: 8, // デフォルト: 6
+        velocityIterations: 6, // デフォルト: 4
+        constraintIterations: 3, // デフォルト: 2
+        // 貫通許容値を削減
         enableSleeping: true,
+        timing: {
+          timestamp: 0,
+          timeScale: 1,
+        },
       },
     },
     scene: [MainScene],

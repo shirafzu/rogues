@@ -54,7 +54,8 @@ class SpawnManager {
     const baseNode = this.scene.matter.add.gameObject(rect, {
       isStatic: true,
       shape: { type: "rectangle", width: size, height: size },
-      friction: 0.1,
+      friction: 0.1, // 摩擦を低く
+      slop: 0.03,
       collisionFilter: {
         category: categories.OBSTACLE || 0x0004,
         mask: (categories.PLAYER | categories.ENEMY | categories.DYNAMIC_OBJECT) || 0xFFFF
@@ -260,10 +261,11 @@ class SpawnManager {
     const categories = this.scene.collisionCategories || {};
     const crate = this.scene.matter.add.gameObject(rect, {
       shape: { type: "rectangle" },
-      friction: 0.3,
-      frictionStatic: 0.8,
+      friction: 0.3, // 摩擦を下げる（動的オブジェクトは適度に）
+      frictionStatic: 0.8, // 静止摩擦は高めに
       restitution: 0.1,
-      density: 0.001,
+      density: 0.01,
+      slop: 0.03, // 貫通許容値を少し緩める
       collisionFilter: {
         category: categories.DYNAMIC_OBJECT || 0x0008,
         mask: (categories.PLAYER | categories.ENEMY | categories.OBSTACLE | categories.DYNAMIC_OBJECT | categories.WALL) || 0xFFFF

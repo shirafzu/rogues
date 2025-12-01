@@ -244,7 +244,8 @@ class WorldManager {
     const categories = this.scene.collisionCategories || {};
     this.scene.matter.add.gameObject(wall, {
       isStatic: true,
-      friction: 0.1,
+      friction: 0.1, // 摩擦を低く
+      slop: 0.03,
       collisionFilter: {
         category: categories.WALL || 0x0040,
         mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
@@ -298,7 +299,8 @@ class WorldManager {
     const categories = this.scene.collisionCategories || {};
     const wallCollisionConfig = {
       isStatic: true,
-      friction: 0.1,
+      friction: 0.1, // 摩擦を低く
+      slop: 0.03,
       collisionFilter: {
         category: categories.WALL || 0x0040,
         mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
@@ -332,7 +334,8 @@ class WorldManager {
     const categories = this.scene.collisionCategories || {};
     this.scene.matter.add.gameObject(door, {
       isStatic: true,
-      friction: 0.1,
+      friction: 0.1, // 摩擦を低く
+      slop: 0.03,
       collisionFilter: {
         category: categories.WALL || 0x0040,
         mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
