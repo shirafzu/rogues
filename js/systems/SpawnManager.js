@@ -50,9 +50,15 @@ class SpawnManager {
     rect.setStrokeStyle(4, 0x64b5f6, 1);
 
     // 物理ボディ（静的）
+    const categories = this.scene.collisionCategories || {};
     const baseNode = this.scene.matter.add.gameObject(rect, {
       isStatic: true,
       shape: { type: "rectangle", width: size, height: size },
+      friction: 0.1,
+      collisionFilter: {
+        category: categories.OBSTACLE || 0x0004,
+        mask: (categories.PLAYER | categories.ENEMY | categories.DYNAMIC_OBJECT) || 0xFFFF
+      }
     });
 
     baseNode.setData("kind", "baseNode");
@@ -251,11 +257,17 @@ class SpawnManager {
     const color = 0x9e9e9e;
 
     const rect = this.scene.add.rectangle(x, y, size, size, color);
+    const categories = this.scene.collisionCategories || {};
     const crate = this.scene.matter.add.gameObject(rect, {
       shape: { type: "rectangle" },
-      friction: 0.8,
-      frictionStatic: 1.0,
+      friction: 0.3,
+      frictionStatic: 0.8,
       restitution: 0.1,
+      density: 0.001,
+      collisionFilter: {
+        category: categories.DYNAMIC_OBJECT || 0x0008,
+        mask: (categories.PLAYER | categories.ENEMY | categories.OBSTACLE | categories.DYNAMIC_OBJECT | categories.WALL) || 0xFFFF
+      }
     });
 
     crate.setFixedRotation();

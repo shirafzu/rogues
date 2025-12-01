@@ -49,6 +49,37 @@ class MainScene extends Phaser.Scene {
     console.log("Map Seed:", seed);
     this.rnd = new Phaser.Math.RandomDataGenerator([seed]);
 
+    // 物理エンジンの詳細設定（衝突検出の改善）
+    if (this.matter && this.matter.world) {
+      const engine = this.matter.world.engine;
+      // 反復回数をデフォルト値に（動きやすさ優先）
+      engine.positionIterations = 6; // デフォルト: 6
+      engine.velocityIterations = 4; // デフォルト: 4
+      engine.constraintIterations = 2; // デフォルト: 2
+      // Resolverの設定
+      if (engine.resolver) {
+        engine.resolver.slop = 0.05; // デフォルト値（動きやすさ優先）
+      }
+      // 衝突検出の品質向上
+      if (this.matter.world.localWorld) {
+        this.matter.world.localWorld.bounds = {
+          min: { x: -50000, y: -50000 },
+          max: { x: 50000, y: 50000 }
+        };
+      }
+    }
+
+    // 衝突カテゴリーの定義
+    this.collisionCategories = {
+      PLAYER: 0x0001,
+      ENEMY: 0x0002,
+      OBSTACLE: 0x0004,
+      DYNAMIC_OBJECT: 0x0008,
+      PROJECTILE: 0x0010,
+      SENSOR: 0x0020,
+      WALL: 0x0040
+    };
+
     // WorldManagerを初期化
     this.worldManager = new WorldManager(this, this.rnd);
     // buildStaticLayoutは廃止
@@ -617,7 +648,8 @@ window.addEventListener("load", () => {
       matter: {
         gravity: { y: 0 }, // トップダウンなので重力はオフ
         debug: false,
-        enableSleeping: false, // スリープを無効化
+        // デフォルト設定を使用（動きやすさ優先）
+        enableSleeping: true,
       },
     },
     scene: [MainScene],
