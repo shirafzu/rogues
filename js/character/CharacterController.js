@@ -121,12 +121,12 @@ class CharacterController {
 
     const sprite = this.scene.matter.add.gameObject(rect, {
       shape: { type: "rectangle" },
-      friction: 0.1, // キャラクターは滑らかに移動
-      frictionAir: 0.05, // 空気抵抗を追加してスムーズな停止
-      frictionStatic: 0.1,
+      friction: 0.0, // キャラクターは滑らかに移動（摩擦なし）
+      frictionAir: 0.01, // 空気抵抗を最小限に
+      frictionStatic: 0.0,
       density: 0.002, // 適度な密度
       restitution: 0.0, // 反発なし
-      slop: 0.02, // 貫通許容値を削減
+      slop: 0.03, // 貫通許容値（少し緩める）
       inertia: Infinity, // 回転しないように慣性を無限大に
       collisionFilter: {
         category: collisionCategory || 0x0001,
