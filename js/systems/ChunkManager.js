@@ -295,17 +295,6 @@ class ChunkManager {
     createSingleObject(chunk, x, y, def, objId) {
         let obj;
 
-        // 衝突カテゴリーの決定
-        const categories = this.scene.collisionCategories || {};
-        const collisionCategory = def.isSensor
-            ? categories.SENSOR
-            : (def.isStatic ? categories.OBSTACLE : categories.DYNAMIC_OBJECT);
-
-        // 衝突マスク（何と衝突するか）
-        const collisionMask = def.isSensor
-            ? 0 // センサーは物理衝突しない
-            : (categories.PLAYER | categories.ENEMY | categories.OBSTACLE | categories.DYNAMIC_OBJECT | categories.PROJECTILE);
-
         if (def.shape === 'circle') {
             const radius = this.rnd.between(def.radius.min, def.radius.max);
             obj = this.scene.add.circle(x, y, radius, def.color);
@@ -315,13 +304,7 @@ class ChunkManager {
                 isStatic: def.isStatic,
                 isSensor: def.isSensor || false,
                 friction: def.friction || 0.1,
-                frictionStatic: 0.5,
-                density: def.density || 0.001,
-                restitution: 0.1,
-                collisionFilter: {
-                    category: collisionCategory || categories.OBSTACLE || 0x0004,
-                    mask: collisionMask || 0xFFFF
-                }
+                density: def.density || 0.001
             };
             this.scene.matter.add.gameObject(obj, { ...options, shape: { type: 'circle', radius: radius } });
 
@@ -339,13 +322,7 @@ class ChunkManager {
                 isStatic: def.isStatic,
                 isSensor: def.isSensor || false,
                 friction: def.friction || 0.1,
-                frictionStatic: 0.5,
-                density: def.density || 0.001,
-                restitution: 0.1,
-                collisionFilter: {
-                    category: collisionCategory || categories.OBSTACLE || 0x0004,
-                    mask: collisionMask || 0xFFFF
-                }
+                density: def.density || 0.001
             };
             this.scene.matter.add.gameObject(obj, { ...options, shape: { type: 'rectangle', width: w, height: h } });
         }
