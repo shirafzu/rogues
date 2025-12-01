@@ -617,7 +617,6 @@ window.addEventListener("load", () => {
       matter: {
         gravity: { y: 0 }, // トップダウンなので重力はオフ
         debug: false,
-        enableSleeping: false, // スリープを無効化
       },
     },
     scene: [MainScene],

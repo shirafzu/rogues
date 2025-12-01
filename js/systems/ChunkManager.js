@@ -294,7 +294,6 @@ class ChunkManager {
 
     createSingleObject(chunk, x, y, def, objId) {
         let obj;
-
         if (def.shape === 'circle') {
             const radius = this.rnd.between(def.radius.min, def.radius.max);
             obj = this.scene.add.circle(x, y, radius, def.color);
