@@ -124,9 +124,31 @@ class ChunkManager {
         const chunk = this.activeChunks.get(key);
         if (!chunk) return;
 
-        // オブジェクトの削除
+        // オブジェクトの削除または移行
         chunk.objects.forEach(obj => {
-            if (obj.destroy) obj.destroy();
+            // 敵キャラクター（動的エンティティ）の場合、現在の位置を確認
+            if (obj.getData('kind') === 'enemy' && obj.active) {
+                const currentCx = Math.floor(obj.x / this.chunkSize);
+                const currentCy = Math.floor(obj.y / this.chunkSize);
+                const newKey = `${currentCx},${currentCy}`;
+
+                // 新しいチャンクがアクティブなら、そちらに移行
+                if (this.activeChunks.has(newKey)) {
+                    const newChunk = this.activeChunks.get(newKey);
+                    if (newChunk !== chunk) {
+                        newChunk.objects.push(obj);
+                        // console.log(`[ChunkManager] Migrated enemy from ${key} to ${newKey}`);
+                        return; // 削除しない
+                    }
+                } else {
+                    // console.log(`[ChunkManager] Enemy at ${obj.x},${obj.y} (Chunk ${newKey}) is in inactive chunk. Destroying.`);
+                }
+            }
+
+            if (obj.destroy) {
+                // console.log(`[ChunkManager] Destroying object in ${key}`);
+                obj.destroy();
+            }
         });
 
         // 家の削除
