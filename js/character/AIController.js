@@ -5,6 +5,14 @@ class AIController {
         this.scene = character.scene;
     }
 
+    clearDebugGraphics() {
+        if (this.debugGraphics) {
+            this.debugGraphics.clear();
+            this.debugGraphics.destroy();
+            this.debugGraphics = null;
+        }
+    }
+
     update(delta) {
         // Override in subclasses
     }
@@ -109,6 +117,7 @@ class SensoryAIController extends AIController {
         if (this.scene && this.scene.events) {
             this.scene.events.off("sound_emitted", this.handleSoundEvent, this);
         }
+        this.clearDebugGraphics();
     }
 
     handleSoundEvent(event) {
