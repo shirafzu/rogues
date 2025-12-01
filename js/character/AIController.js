@@ -89,6 +89,14 @@ class SensoryAIController extends AIController {
         this.patrolRadius = config.patrolRadius ?? 200;
         this.attackRange = config.attackRange ?? 80;
 
+        // Obstacle Avoidance Config
+        this.avoidanceConfig = config.avoidance || {
+            rayCount: 8,
+            rayLength: 60, // Detection range
+            avoidForce: 1.5, // How strongly to avoid
+            debug: false
+        };
+
         this.moveTarget = null;
 
         // Listen for sound events
@@ -150,6 +158,11 @@ class SensoryAIController extends AIController {
 
         // 3. Act
         this.act(delta);
+
+        // Debug Draw
+        if (this.avoidanceConfig.debug) {
+            this.drawDebug();
+        }
     }
 
     processSenses() {
@@ -192,22 +205,7 @@ class SensoryAIController extends AIController {
 
                 if (scentNode) {
                     // Found a scent!
-                    // If we are already chasing/searching, we might want to update target
-                    // But here we just set detected=true to trigger state change
-                    // The actual movement target will be set in decideState/act
-                    // For now, let's set target to the scent node position (virtual target)
-
-                    // Note: This is tricky because 'target' usually means the player sprite
-                    // If we set target to player, CHASE logic will move to player directly
-                    // But we want to move to the scent node.
-
-                    // Solution:
-                    // If smelled, we set a "scentTarget" and switch to SEARCH or CHASE
-                    // For Dog behavior (aggressive tracking), we can treat it as CHASE but move to scent
-
                     this.lastKnownPos = { x: scentNode.x, y: scentNode.y };
-                    // We don't set this.target = player because we don't see them
-                    // But we want to enter CHASE/SEARCH state
 
                     // If we are IDLE/PATROL, smell triggers SEARCH (or CHASE for high aggression)
                     if (this.state === "IDLE" || this.state === "PATROL") {
@@ -250,8 +248,6 @@ class SensoryAIController extends AIController {
             if (body.isSensor) continue;
 
             // If we hit something else (wall, crate, etc.), LOS is blocked
-            // Ideally check collision filter or label
-            // For now, assume any other static/solid body blocks view
             return false;
         }
 
@@ -401,29 +397,140 @@ class SensoryAIController extends AIController {
         this.moveTarget = target || { x: this.character.sprite.x, y: this.character.sprite.y };
     }
 
+    getBestMoveDirection(target) {
+        const sprite = this.character.sprite;
+        const rayCount = this.avoidanceConfig.rayCount;
+        const rayLength = this.avoidanceConfig.rayLength;
+
+        // 1. Interest Map (Direction to target)
+        const angleToTarget = Phaser.Math.Angle.Between(sprite.x, sprite.y, target.x, target.y);
+
+        // 2. Danger Map (Obstacles)
+        const dangerMap = new Array(rayCount).fill(0);
+        const interestMap = new Array(rayCount).fill(0);
+
+        // Calculate interest for each ray direction
+        for (let i = 0; i < rayCount; i++) {
+            const angle = (i / rayCount) * Math.PI * 2;
+            // Simple dot product to see alignment with target direction
+            // We want directions close to the target angle to have higher interest
+            // Cosine similarity: 1.0 if aligned, -1.0 if opposite
+            // We map this to 0..1 roughly, or just use it as weight
+
+            // Difference between ray angle and target angle
+            let diff = angle - angleToTarget;
+            // Normalize to -PI..PI
+            while (diff <= -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+
+            // Interest is higher if angle is closer to target
+            // Gaussian-like falloff or linear
+            const weight = Math.max(0, 1 - Math.abs(diff) / (Math.PI / 2)); // Only forward 180 degrees relevant?
+            // Actually let's allow all directions but prefer target
+            interestMap[i] = Math.max(0, Math.cos(diff));
+        }
+
+        // Cast rays to populate Danger Map
+        if (this.scene.matter) {
+            const start = { x: sprite.x, y: sprite.y };
+
+            for (let i = 0; i < rayCount; i++) {
+                const angle = (i / rayCount) * Math.PI * 2;
+                const end = {
+                    x: start.x + Math.cos(angle) * rayLength,
+                    y: start.y + Math.sin(angle) * rayLength
+                };
+
+                const bodies = this.scene.matter.query.ray(
+                    this.scene.matter.world.localWorld.bodies,
+                    start,
+                    end
+                );
+
+                let hit = false;
+                for (const body of bodies) {
+                    if (body.gameObject === sprite) continue;
+                    if (body.isSensor) continue;
+                    // If target is a body (e.g. player), we don't want to avoid it if we are chasing!
+                    // But usually we just want to avoid static walls/obstacles
+                    if (body.gameObject === target) continue; // Don't avoid the target itself
+
+                    // Hit an obstacle
+                    hit = true;
+                    break;
+                }
+
+                if (hit) {
+                    dangerMap[i] = 1; // Full danger
+                }
+            }
+        }
+
+        // 3. Choose Best Direction
+        // Subtract danger from interest
+        let bestDirIndex = -1;
+        let maxScore = -Infinity;
+
+        for (let i = 0; i < rayCount; i++) {
+            const score = interestMap[i] - (dangerMap[i] * this.avoidanceConfig.avoidForce);
+            if (score > maxScore) {
+                maxScore = score;
+                bestDirIndex = i;
+            }
+        }
+
+        if (bestDirIndex !== -1) {
+            const angle = (bestDirIndex / rayCount) * Math.PI * 2;
+            return { x: Math.cos(angle), y: Math.sin(angle) };
+        }
+
+        // Fallback to direct
+        return null;
+    }
+
     moveTo(target, speedMultiplier = 1.0) {
         if (!target) return;
         const sprite = this.character.sprite;
-        const dx = target.x - sprite.x;
-        const dy = target.y - sprite.y;
-        const dist = Math.hypot(dx, dy);
+        const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, target.x, target.y);
 
         if (dist > 10) {
+            let nx, ny;
+
+            // Use Context Steering for obstacle avoidance
+            const bestDir = this.getBestMoveDirection(target);
+
+            if (bestDir) {
+                nx = bestDir.x;
+                ny = bestDir.y;
+            } else {
+                // Fallback to direct
+                const dx = target.x - sprite.x;
+                const dy = target.y - sprite.y;
+                nx = dx / dist;
+                ny = dy / dist;
+            }
+
             const maxSpeed = this.character.moveSpeed * speedMultiplier;
-            const nx = dx / dist;
-            const ny = dy / dist;
             const targetVx = nx * maxSpeed;
             const targetVy = ny * maxSpeed;
 
             const currentVx = sprite.body.velocity.x;
             const currentVy = sprite.body.velocity.y;
 
+            // Smooth turn
             const lerpFactor = this.state === "PATROL" ? 0.05 : 0.1;
 
             const newVx = currentVx + (targetVx - currentVx) * lerpFactor;
             const newVy = currentVy + (targetVy - currentVy) * lerpFactor;
 
             sprite.setVelocity(newVx, newVy);
+
+            // Store debug info
+            this.debugInfo = {
+                target: target,
+                bestDir: bestDir
+            };
+
         } else {
             const currentVx = sprite.body.velocity.x;
             const currentVy = sprite.body.velocity.y;
@@ -446,6 +553,40 @@ class SensoryAIController extends AIController {
         const attackAbility = this.character.abilityMap["attack"] || this.character.abilityMap["tap"];
         if (attackAbility) {
             attackAbility.execute();
+        }
+    }
+
+    drawDebug() {
+        if (!this.scene.graphics) {
+            this.scene.graphics = this.scene.add.graphics();
+        }
+        const graphics = this.scene.graphics;
+        graphics.clear();
+
+        const sprite = this.character.sprite;
+        if (!sprite) return;
+
+        // Draw rays
+        const rayCount = this.avoidanceConfig.rayCount;
+        const rayLength = this.avoidanceConfig.rayLength;
+
+        graphics.lineStyle(1, 0x00ff00, 0.3);
+
+        for (let i = 0; i < rayCount; i++) {
+            const angle = (i / rayCount) * Math.PI * 2;
+            const endX = sprite.x + Math.cos(angle) * rayLength;
+            const endY = sprite.y + Math.sin(angle) * rayLength;
+            graphics.moveTo(sprite.x, sprite.y);
+            graphics.lineTo(endX, endY);
+        }
+
+        // Draw chosen direction
+        if (this.debugInfo && this.debugInfo.bestDir) {
+            graphics.lineStyle(2, 0xff0000, 1.0);
+            const endX = sprite.x + this.debugInfo.bestDir.x * rayLength * 1.5;
+            const endY = sprite.y + this.debugInfo.bestDir.y * rayLength * 1.5;
+            graphics.moveTo(sprite.x, sprite.y);
+            graphics.lineTo(endX, endY);
         }
     }
 }
