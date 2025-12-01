@@ -409,6 +409,7 @@ class SensoryAIController extends AIController {
         const sprite = this.character.sprite;
         const rayCount = this.avoidanceConfig.rayCount;
         const rayLength = this.avoidanceConfig.rayLength;
+        const clearanceRadius = this.getAgentRadius();
 
         // 1. Interest Map (Direction to target)
         const angleToTarget = Phaser.Math.Angle.Between(sprite.x, sprite.y, target.x, target.y);
@@ -444,32 +445,35 @@ class SensoryAIController extends AIController {
 
             for (let i = 0; i < rayCount; i++) {
                 const angle = (i / rayCount) * Math.PI * 2;
-                const end = {
-                    x: start.x + Math.cos(angle) * rayLength,
-                    y: start.y + Math.sin(angle) * rayLength
-                };
+                const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+                const perp = { x: -dir.y, y: dir.x };
 
-                const bodies = this.scene.matter.query.ray(
-                    this.scene.matter.world.localWorld.bodies,
-                    start,
-                    end
-                );
+                // Cast multiple rays offset by the character's radius so we account for body width
+                const offsets = [0, clearanceRadius * 0.9, -clearanceRadius * 0.9];
+                let worstDanger = 0;
 
-                let hit = false;
-                for (const body of bodies) {
-                    if (body.gameObject === sprite) continue;
-                    if (body.isSensor) continue;
-                    // If target is a body (e.g. player), we don't want to avoid it if we are chasing!
-                    // But usually we just want to avoid static walls/obstacles
-                    if (body.gameObject === target) continue; // Don't avoid the target itself
+                for (const offset of offsets) {
+                    const rayStart = {
+                        x: start.x + perp.x * offset,
+                        y: start.y + perp.y * offset
+                    };
+                    const rayEnd = {
+                        x: rayStart.x + dir.x * rayLength,
+                        y: rayStart.y + dir.y * rayLength
+                    };
 
-                    // Hit an obstacle
-                    hit = true;
-                    break;
+                    const hitDistance = this.castRayForClearance(rayStart, rayEnd, sprite, target);
+                    if (hitDistance !== null) {
+                        // Danger increases the closer the obstacle is to the start point
+                        const clearanceDist = hitDistance - clearanceRadius;
+                        const normalized = Phaser.Math.Clamp(clearanceDist / rayLength, 0, 1);
+                        const danger = 1 - normalized;
+                        worstDanger = Math.max(worstDanger, danger);
+                    }
                 }
 
-                if (hit) {
-                    dangerMap[i] = 1; // Full danger
+                if (worstDanger > 0) {
+                    dangerMap[i] = Math.min(1, worstDanger * this.avoidanceConfig.avoidForce);
                 }
             }
         }
@@ -494,6 +498,49 @@ class SensoryAIController extends AIController {
 
         // Fallback to direct
         return null;
+    }
+
+    getAgentRadius() {
+        const body = this.character.sprite?.body;
+        if (!body) return 0;
+        if (body.circleRadius) return body.circleRadius;
+
+        const bounds = body.bounds;
+        if (!bounds) return 0;
+
+        const width = bounds.max.x - bounds.min.x;
+        const height = bounds.max.y - bounds.min.y;
+        return Math.max(width, height) / 2;
+    }
+
+    castRayForClearance(start, end, sprite, target) {
+        const results = this.scene.matter.query.ray(
+            this.scene.matter.world.localWorld.bodies,
+            start,
+            end
+        );
+
+        let nearest = null;
+
+        for (const res of results) {
+            const body = res.body || res.bodyA || res.bodyB || res;
+            if (!body) continue;
+            if (body.gameObject === sprite) continue;
+            if (body.isSensor) continue;
+            if (body.gameObject === target) continue;
+            if (body.parent && (body.parent.gameObject === sprite || body.parent.gameObject === target)) continue;
+
+            const point = res.point || res;
+            const px = point.x ?? body.position?.x ?? end.x;
+            const py = point.y ?? body.position?.y ?? end.y;
+            const dist = Phaser.Math.Distance.Between(start.x, start.y, px, py);
+
+            if (nearest === null || dist < nearest) {
+                nearest = dist;
+            }
+        }
+
+        return nearest;
     }
 
     moveTo(target, speedMultiplier = 1.0) {
