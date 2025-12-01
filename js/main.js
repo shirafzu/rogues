@@ -49,6 +49,37 @@ class MainScene extends Phaser.Scene {
     console.log("Map Seed:", seed);
     this.rnd = new Phaser.Math.RandomDataGenerator([seed]);
 
+    // 物理エンジンの詳細設定（衝突検出の改善）
+    if (this.matter && this.matter.world) {
+      const engine = this.matter.world.engine;
+      // 貫通許容値を削減（デフォルト: 0.05）
+      engine.positionIterations = 8;
+      engine.velocityIterations = 6;
+      engine.constraintIterations = 3;
+      // Resolverの設定でより厳密な衝突解決を実現
+      if (engine.resolver) {
+        engine.resolver.slop = 0.02; // デフォルト: 0.05 (小さくすると貫通しにくくなる)
+      }
+      // 衝突検出の品質向上
+      if (this.matter.world.localWorld) {
+        this.matter.world.localWorld.bounds = {
+          min: { x: -50000, y: -50000 },
+          max: { x: 50000, y: 50000 }
+        };
+      }
+    }
+
+    // 衝突カテゴリーの定義
+    this.collisionCategories = {
+      PLAYER: 0x0001,
+      ENEMY: 0x0002,
+      OBSTACLE: 0x0004,
+      DYNAMIC_OBJECT: 0x0008,
+      PROJECTILE: 0x0010,
+      SENSOR: 0x0020,
+      WALL: 0x0040
+    };
+
     // WorldManagerを初期化
     this.worldManager = new WorldManager(this, this.rnd);
     // buildStaticLayoutは廃止
@@ -617,6 +648,16 @@ window.addEventListener("load", () => {
       matter: {
         gravity: { y: 0 }, // トップダウンなので重力はオフ
         debug: false,
+        // 衝突検出の精度を向上
+        positionIterations: 8, // デフォルト: 6
+        velocityIterations: 6, // デフォルト: 4
+        constraintIterations: 3, // デフォルト: 2
+        // 貫通許容値を削減
+        enableSleeping: true,
+        timing: {
+          timestamp: 0,
+          timeScale: 1,
+        },
       },
     },
     scene: [MainScene],

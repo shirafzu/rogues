@@ -241,7 +241,16 @@ class WorldManager {
     }
 
     const wall = this.scene.add.rectangle(x, y, w, h, color);
-    this.scene.matter.add.gameObject(wall, { isStatic: true });
+    const categories = this.scene.collisionCategories || {};
+    this.scene.matter.add.gameObject(wall, {
+      isStatic: true,
+      friction: 0.8,
+      slop: 0.02,
+      collisionFilter: {
+        category: categories.WALL || 0x0040,
+        mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
+      }
+    });
     wall.setDepth(5);
     house.physicsObjects.push(wall);
   }
@@ -287,15 +296,26 @@ class WorldManager {
       }
     }
 
+    const categories = this.scene.collisionCategories || {};
+    const wallCollisionConfig = {
+      isStatic: true,
+      friction: 0.8,
+      slop: 0.02,
+      collisionFilter: {
+        category: categories.WALL || 0x0040,
+        mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
+      }
+    };
+
     if (w1) {
       const wall1 = this.scene.add.rectangle(x1, y1, w1, h1, color);
-      this.scene.matter.add.gameObject(wall1, { isStatic: true });
+      this.scene.matter.add.gameObject(wall1, wallCollisionConfig);
       wall1.setDepth(5);
       house.physicsObjects.push(wall1);
     }
     if (w2) {
       const wall2 = this.scene.add.rectangle(x2, y2, w2, h2, color);
-      this.scene.matter.add.gameObject(wall2, { isStatic: true });
+      this.scene.matter.add.gameObject(wall2, wallCollisionConfig);
       wall2.setDepth(5);
       house.physicsObjects.push(wall2);
     }
@@ -311,7 +331,16 @@ class WorldManager {
 
     // ドア本体
     const door = this.scene.add.rectangle(doorData.x, doorData.y, w, h, 0x8d6e63);
-    this.scene.matter.add.gameObject(door, { isStatic: true });
+    const categories = this.scene.collisionCategories || {};
+    this.scene.matter.add.gameObject(door, {
+      isStatic: true,
+      friction: 0.8,
+      slop: 0.02,
+      collisionFilter: {
+        category: categories.WALL || 0x0040,
+        mask: (categories.PLAYER | categories.ENEMY | categories.PROJECTILE | categories.DYNAMIC_OBJECT) || 0xFFFF
+      }
+    });
     door.setDepth(6);
     door.setData('kind', 'door');
     door.setData('state', 'closed');
