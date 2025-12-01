@@ -110,6 +110,11 @@ class CharacterController {
     const rect = this.scene.add.rectangle(x, y, size, size, this.baseColor);
     const sprite = this.scene.matter.add.gameObject(rect, {
       shape: { type: "rectangle" },
+      frictionAir: 0, // 空気抵抗なし
+      friction: 0, // 摩擦なし
+      frictionStatic: 0, // 静止摩擦なし
+      restitution: 0, // 反発なし
+      density: 0.001, // 軽量に
     });
     sprite.setFixedRotation();
     sprite.setData("kind", this.kind);
