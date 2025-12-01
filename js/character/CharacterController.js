@@ -108,30 +108,8 @@ class CharacterController {
   createSprite(x, y) {
     const size = 60;
     const rect = this.scene.add.rectangle(x, y, size, size, this.baseColor);
-
-    // 衝突カテゴリーの決定
-    const categories = this.scene.collisionCategories || {};
-    const isPlayer = this.kind === "player";
-    const collisionCategory = isPlayer ? categories.PLAYER : categories.ENEMY;
-
-    // 衝突マスクの設定（何と衝突するか）
-    const collisionMask = isPlayer
-      ? (categories.ENEMY | categories.OBSTACLE | categories.DYNAMIC_OBJECT | categories.WALL) // プレイヤーは敵、障害物、動的オブジェクト、壁と衝突
-      : (categories.PLAYER | categories.OBSTACLE | categories.DYNAMIC_OBJECT | categories.WALL | categories.ENEMY); // 敵は全てと衝突
-
     const sprite = this.scene.matter.add.gameObject(rect, {
       shape: { type: "rectangle" },
-      friction: 0.1, // キャラクターは滑らかに移動
-      frictionAir: 0.05, // 空気抵抗を追加してスムーズな停止
-      frictionStatic: 0.1,
-      density: 0.002, // 適度な密度
-      restitution: 0.0, // 反発なし
-      slop: 0.02, // 貫通許容値を削減
-      inertia: Infinity, // 回転しないように慣性を無限大に
-      collisionFilter: {
-        category: collisionCategory || 0x0001,
-        mask: collisionMask || 0xFFFF
-      }
     });
     sprite.setFixedRotation();
     sprite.setData("kind", this.kind);
