@@ -58,7 +58,7 @@ class MainScene extends Phaser.Scene {
       engine.constraintIterations = 3;
       // Resolverの設定でより厳密な衝突解決を実現
       if (engine.resolver) {
-        engine.resolver.slop = 0.03; // デフォルト: 0.05 (貫通抑制と動きやすさのバランス)
+        engine.resolver.slop = 0.02; // デフォルト: 0.05 (小さくすると貫通しにくくなる)
       }
       // 衝突検出の品質向上
       if (this.matter.world.localWorld) {

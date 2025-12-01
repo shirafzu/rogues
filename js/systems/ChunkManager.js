@@ -314,11 +314,10 @@ class ChunkManager {
             const options = {
                 isStatic: def.isStatic,
                 isSensor: def.isSensor || false,
-                friction: def.friction || 0.1, // 摩擦は低めに保つ
-                frictionStatic: 0.5, // 静止摩擦のみ高く
+                friction: def.friction || 0.8, // 摩擦を増加（0.1 -> 0.8）
                 density: def.density || 0.01, // 密度を増加（0.001 -> 0.01）
                 restitution: 0.1, // 反発係数を追加
-                slop: 0.03, // 貫通許容値を少し緩める
+                slop: 0.02, // 貫通許容値を削減
                 collisionFilter: {
                     category: collisionCategory || categories.OBSTACLE || 0x0004,
                     mask: collisionMask || 0xFFFF
@@ -339,11 +338,10 @@ class ChunkManager {
             const options = {
                 isStatic: def.isStatic,
                 isSensor: def.isSensor || false,
-                friction: def.friction || 0.1, // 摩擦は低めに保つ
-                frictionStatic: 0.5, // 静止摩擦のみ高く
+                friction: def.friction || 0.8, // 摩擦を増加（0.1 -> 0.8）
                 density: def.density || 0.01, // 密度を増加（0.001 -> 0.01）
                 restitution: 0.1, // 反発係数を追加
-                slop: 0.03, // 貫通許容値を少し緩める
+                slop: 0.02, // 貫通許容値を削減
                 collisionFilter: {
                     category: collisionCategory || categories.OBSTACLE || 0x0004,
                     mask: collisionMask || 0xFFFF
