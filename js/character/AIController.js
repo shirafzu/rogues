@@ -159,10 +159,9 @@ class SensoryAIController extends AIController {
         // 3. Act
         this.act(delta);
 
-        // Debug Draw
-        if (this.avoidanceConfig.debug) {
-            this.drawDebug();
-        }
+        // Debug/Vision Draw
+        // console.log(`[AIController] Update. Entity: ${this.character._entityId}, Vision: ${!!this.senses.vision}, SpriteActive: ${this.character.sprite?.active}`);
+        this.drawDebug();
     }
 
     processSenses() {
@@ -239,15 +238,24 @@ class SensoryAIController extends AIController {
         );
 
         // Check if any body blocks the view
-        for (const body of bodies) {
+        for (const collision of bodies) {
+            // Matter.Query.ray returns collision objects.
+            const body = collision.bodyA || collision.bodyB;
+            if (!body) continue;
+
             // Ignore self and target
             if (body.gameObject === this.character.sprite) continue;
             if (body.gameObject === target) continue;
 
-            // Ignore sensors, non-blocking items (like grass, if any)
+            // Handle compound bodies
+            if (body.parent && body.parent.gameObject === this.character.sprite) continue;
+            if (body.parent && body.parent.gameObject === target) continue;
+
+            // Ignore sensors
             if (body.isSensor) continue;
 
-            // If we hit something else (wall, crate, etc.), LOS is blocked
+            // If we hit something else, LOS is blocked
+            // console.log(`[AI Debug] Blocked by: ${body.label}`);
             return false;
         }
 
@@ -525,6 +533,11 @@ class SensoryAIController extends AIController {
 
             sprite.setVelocity(newVx, newVy);
 
+            // Update rotation to face movement direction
+            if (Math.abs(newVx) > 0.1 || Math.abs(newVy) > 0.1) {
+                sprite.setRotation(Math.atan2(newVy, newVx));
+            }
+
             // Store debug info
             this.debugInfo = {
                 target: target,
@@ -557,36 +570,32 @@ class SensoryAIController extends AIController {
     }
 
     drawDebug() {
-        if (!this.scene.graphics) {
-            this.scene.graphics = this.scene.add.graphics();
+        if (!this.debugGraphics) {
+            this.debugGraphics = this.scene.add.graphics();
+            this.debugGraphics.setDepth(9999); // Topmost
         }
-        const graphics = this.scene.graphics;
+        const graphics = this.debugGraphics;
         graphics.clear();
 
         const sprite = this.character.sprite;
-        if (!sprite) return;
-
-        // Draw rays
-        const rayCount = this.avoidanceConfig.rayCount;
-        const rayLength = this.avoidanceConfig.rayLength;
-
-        graphics.lineStyle(1, 0x00ff00, 0.3);
-
-        for (let i = 0; i < rayCount; i++) {
-            const angle = (i / rayCount) * Math.PI * 2;
-            const endX = sprite.x + Math.cos(angle) * rayLength;
-            const endY = sprite.y + Math.sin(angle) * rayLength;
-            graphics.moveTo(sprite.x, sprite.y);
-            graphics.lineTo(endX, endY);
+        if (!sprite || !sprite.active) {
+            graphics.clear();
+            return;
         }
 
-        // Draw chosen direction
-        if (this.debugInfo && this.debugInfo.bestDir) {
-            graphics.lineStyle(2, 0xff0000, 1.0);
-            const endX = sprite.x + this.debugInfo.bestDir.x * rayLength * 1.5;
-            const endY = sprite.y + this.debugInfo.bestDir.y * rayLength * 1.5;
-            graphics.moveTo(sprite.x, sprite.y);
-            graphics.lineTo(endX, endY);
+        // Vision Cone Visualization
+        const vision = this.senses.vision;
+        if (vision && vision.range > 0) {
+            let color = 0x0000ff; // Blue: Patrol/Idle
+            if (this.state === "SEARCH") color = 0xffff00; // Yellow: Search
+            if (this.state === "CHASE" || this.state === "ATTACK") color = 0xff0000; // Red: Chase
+
+            const angle = sprite.rotation;
+            const halfAngle = Phaser.Math.DegToRad(vision.angle / 2);
+
+            graphics.fillStyle(color, 0.2); // Semi-transparent
+            graphics.slice(sprite.x, sprite.y, vision.range, angle - halfAngle, angle + halfAngle, false);
+            graphics.fillPath();
         }
     }
 }
