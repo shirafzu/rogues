@@ -97,15 +97,35 @@ class SensoryAIController extends AIController {
         this.patrolRadius = config.patrolRadius ?? 200;
         this.attackRange = config.attackRange ?? 80;
 
+        // === Reynolds Steering Behavior Parameters ===
+        this.maxSpeed = this.character.moveSpeed || 150;
+        this.maxForce = config.maxForce ?? 8; // Maximum steering force
+        this.mass = config.mass ?? 1;
+
+        // Arrive behavior parameters
+        this.slowingRadius = config.slowingRadius ?? 100; // Start slowing down at this distance
+        this.arrivalTolerance = config.arrivalTolerance ?? 5; // Consider arrived at this distance
+
+        // Pursuit prediction
+        this.pursuitPredictionFactor = config.pursuitPredictionFactor ?? 0.5;
+
         // Obstacle Avoidance Config
         this.avoidanceConfig = config.avoidance || {
-            rayCount: 8,
-            rayLength: 60, // Detection range
-            avoidForce: 1.5, // How strongly to avoid
+            rayCount: 12,
+            rayLength: 80,
+            avoidForce: 2.0,
             debug: false
         };
 
         this.moveTarget = null;
+
+        // Pathfinding
+        this.currentPath = null;
+        this.currentWaypointIndex = 0;
+        this.pathRecalculateTimer = 0;
+        this.pathRecalculateInterval = 300;
+        this.waypointReachedDistance = 30;
+        this.usePathfinding = config.usePathfinding ?? true;
 
         // Listen for sound events
         if (this.scene.events) {
@@ -113,9 +133,213 @@ class SensoryAIController extends AIController {
         }
     }
 
+    // ========================================
+    // Reynolds Steering Behaviors
+    // ========================================
+
+    /**
+     * Seek: Steer toward target at max speed
+     * Formula: steering = normalize(target - position) * maxSpeed - velocity
+     */
+    steerSeek(targetPos) {
+        const sprite = this.character.sprite;
+        const dx = targetPos.x - sprite.x;
+        const dy = targetPos.y - sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 0.001) return { x: 0, y: 0 };
+
+        // Desired velocity: direction to target * max speed
+        const desiredVx = (dx / dist) * this.maxSpeed;
+        const desiredVy = (dy / dist) * this.maxSpeed;
+
+        // Steering = desired - current
+        const steerX = desiredVx - sprite.body.velocity.x;
+        const steerY = desiredVy - sprite.body.velocity.y;
+
+        return this.truncateForce({ x: steerX, y: steerY });
+    }
+
+    /**
+     * Arrive: Seek with deceleration near target
+     * Slows down as it approaches, stopping at target
+     */
+    steerArrive(targetPos, slowingRadius = null) {
+        const sprite = this.character.sprite;
+        const sr = slowingRadius ?? this.slowingRadius;
+
+        const dx = targetPos.x - sprite.x;
+        const dy = targetPos.y - sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < this.arrivalTolerance) {
+            // Apply braking force when very close
+            return {
+                x: -sprite.body.velocity.x * 0.3,
+                y: -sprite.body.velocity.y * 0.3
+            };
+        }
+
+        // Calculate desired speed based on distance
+        let desiredSpeed;
+        if (dist < sr) {
+            // Inside slowing radius: scale speed linearly
+            desiredSpeed = this.maxSpeed * (dist / sr);
+        } else {
+            // Outside slowing radius: max speed
+            desiredSpeed = this.maxSpeed;
+        }
+
+        // Desired velocity
+        const desiredVx = (dx / dist) * desiredSpeed;
+        const desiredVy = (dy / dist) * desiredSpeed;
+
+        // Steering = desired - current
+        const steerX = desiredVx - sprite.body.velocity.x;
+        const steerY = desiredVy - sprite.body.velocity.y;
+
+        return this.truncateForce({ x: steerX, y: steerY });
+    }
+
+    /**
+     * Pursuit: Predict target's future position and seek there
+     * Good for chasing moving targets
+     */
+    steerPursuit(targetSprite) {
+        const sprite = this.character.sprite;
+
+        // Distance to target
+        const dx = targetSprite.x - sprite.x;
+        const dy = targetSprite.y - sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Prediction time: proportional to distance
+        const T = (dist / this.maxSpeed) * this.pursuitPredictionFactor;
+
+        // Predict target's future position
+        const targetVx = targetSprite.body?.velocity?.x || 0;
+        const targetVy = targetSprite.body?.velocity?.y || 0;
+
+        const predictedX = targetSprite.x + targetVx * T;
+        const predictedY = targetSprite.y + targetVy * T;
+
+        // Seek the predicted position
+        return this.steerSeek({ x: predictedX, y: predictedY });
+    }
+
+    /**
+     * Obstacle Avoidance: Cast rays and avoid obstacles
+     * Returns avoidance steering force or null if no obstacle
+     */
+    steerAvoidObstacles() {
+        const sprite = this.character.sprite;
+        const rayCount = this.avoidanceConfig.rayCount;
+        const rayLength = this.avoidanceConfig.rayLength;
+
+        if (!this.scene.matter) return null;
+
+        const start = { x: sprite.x, y: sprite.y };
+        const currentAngle = sprite.rotation;
+
+        let avoidX = 0;
+        let avoidY = 0;
+        let obstacleDetected = false;
+
+        // Cast rays in a forward arc
+        for (let i = 0; i < rayCount; i++) {
+            // Spread rays in forward 180 degrees
+            const angleOffset = ((i / (rayCount - 1)) - 0.5) * Math.PI;
+            const rayAngle = currentAngle + angleOffset;
+
+            const end = {
+                x: start.x + Math.cos(rayAngle) * rayLength,
+                y: start.y + Math.sin(rayAngle) * rayLength
+            };
+
+            const bodies = this.scene.matter.query.ray(
+                this.scene.matter.world.localWorld.bodies,
+                start,
+                end
+            );
+
+            for (const collision of bodies) {
+                const body = collision.bodyA || collision.bodyB;
+                if (!body) continue;
+                if (body.gameObject === sprite) continue;
+                if (body.isSensor) continue;
+                if (this.target && body.gameObject === this.target) continue;
+
+                // Found obstacle - add avoidance force perpendicular to ray
+                obstacleDetected = true;
+
+                // Weight by how forward the ray is (forward rays matter more)
+                const forwardness = Math.cos(angleOffset);
+                const weight = Math.max(0, forwardness) + 0.3;
+
+                // Push away perpendicular to the ray direction
+                const perpAngle = rayAngle + (angleOffset > 0 ? -Math.PI / 2 : Math.PI / 2);
+                avoidX += Math.cos(perpAngle) * weight * this.avoidanceConfig.avoidForce;
+                avoidY += Math.sin(perpAngle) * weight * this.avoidanceConfig.avoidForce;
+
+                break; // One hit per ray is enough
+            }
+        }
+
+        if (!obstacleDetected) return null;
+
+        return this.truncateForce({ x: avoidX, y: avoidY });
+    }
+
+    /**
+     * Truncate force vector to maxForce
+     */
+    truncateForce(force) {
+        const mag = Math.sqrt(force.x * force.x + force.y * force.y);
+        if (mag > this.maxForce) {
+            return {
+                x: (force.x / mag) * this.maxForce,
+                y: (force.y / mag) * this.maxForce
+            };
+        }
+        return force;
+    }
+
+    /**
+     * Apply steering force to velocity
+     */
+    applySteeringForce(steering) {
+        const sprite = this.character.sprite;
+
+        // acceleration = force / mass
+        const ax = steering.x / this.mass;
+        const ay = steering.y / this.mass;
+
+        // velocity = velocity + acceleration
+        let vx = sprite.body.velocity.x + ax;
+        let vy = sprite.body.velocity.y + ay;
+
+        // Truncate velocity to max speed
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        if (speed > this.maxSpeed) {
+            vx = (vx / speed) * this.maxSpeed;
+            vy = (vy / speed) * this.maxSpeed;
+        }
+
+        sprite.setVelocity(vx, vy);
+
+        // Update rotation to face velocity direction
+        if (speed > 1) {
+            sprite.setRotation(Math.atan2(vy, vx));
+        }
+    }
+
     destroy() {
         if (this.scene && this.scene.events) {
             this.scene.events.off("sound_emitted", this.handleSoundEvent, this);
+        }
+        // Clear pathfinding cache
+        if (this.scene && this.scene.navigationManager && this.character._entityId) {
+            this.scene.navigationManager.clearPath(this.character._entityId);
         }
         this.clearDebugGraphics();
     }
@@ -286,7 +510,7 @@ class SensoryAIController extends AIController {
             case "PATROL":
                 if (this.target) {
                     this.changeState("CHASE");
-                } else if (this.hasReachedMoveTarget()) {
+                } else if (this.hasReachedMoveTarget(15)) {
                     this.changeState("IDLE");
                 }
                 break;
@@ -328,35 +552,63 @@ class SensoryAIController extends AIController {
 
     act(delta) {
         const sprite = this.character.sprite;
+        let steering = { x: 0, y: 0 };
 
         switch (this.state) {
             case "IDLE":
-                sprite.setVelocity(0, 0);
+                // Brake to stop
+                steering = {
+                    x: -sprite.body.velocity.x * 0.2,
+                    y: -sprite.body.velocity.y * 0.2
+                };
                 break;
 
             case "PATROL":
-                this.moveTo(this.moveTarget, 0.5);
+                if (this.moveTarget) {
+                    // Use Arrive behavior for patrol (slow down at destination)
+                    this.maxSpeed = this.character.moveSpeed * 0.5;
+                    steering = this.steerArrive(this.moveTarget, 50);
+                }
                 break;
 
             case "CHASE":
                 if (this.target) {
-                    this.moveTo(this.target);
+                    // Use Pursuit behavior for chasing moving targets
+                    this.maxSpeed = this.character.moveSpeed;
+                    steering = this.steerPursuit(this.target);
                 }
                 break;
 
             case "SEARCH":
                 if (this.lastKnownPos) {
-                    this.moveTo(this.lastKnownPos, 0.7);
+                    // Use Arrive behavior for searching (approach destination precisely)
+                    this.maxSpeed = this.character.moveSpeed * 0.7;
+                    steering = this.steerArrive(this.lastKnownPos, 80);
                 }
                 break;
 
             case "ATTACK":
-                sprite.setVelocity(0, 0);
+                // Stop and attack
+                steering = {
+                    x: -sprite.body.velocity.x * 0.3,
+                    y: -sprite.body.velocity.y * 0.3
+                };
                 if (this.stateTimer === 0) {
                     this.tryAttack();
                 }
                 break;
         }
+
+        // Add obstacle avoidance (weighted blend)
+        const avoidance = this.steerAvoidObstacles();
+        if (avoidance) {
+            // Blend: avoidance takes priority when obstacles are near
+            steering.x = steering.x * 0.3 + avoidance.x * 0.7;
+            steering.y = steering.y * 0.3 + avoidance.y * 0.7;
+        }
+
+        // Apply the combined steering force
+        this.applySteeringForce(steering);
     }
 
     changeState(newState) {
@@ -607,7 +859,8 @@ class SensoryAIController extends AIController {
         }
     }
 
-    hasReachedMoveTarget() {
+    hasReachedMoveTarget(threshold = null) {
+        const t = threshold ?? this.arrivalTolerance;
         if (!this.moveTarget) return true;
         const dist = Phaser.Math.Distance.Between(
             this.character.sprite.x,
@@ -615,7 +868,7 @@ class SensoryAIController extends AIController {
             this.moveTarget.x,
             this.moveTarget.y
         );
-        return dist < 10;
+        return dist < t;
     }
 
     tryAttack() {
