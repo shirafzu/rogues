@@ -1,13 +1,19 @@
 class WorldManager {
-  constructor(scene, rnd) {
+  constructor(scene, rnd, options = {}) {
     this.scene = scene;
     this.rnd = rnd;
+
+    this.mapGenerationMode = options.mapGenerationMode || "biome";
+    this.hotspotSeed = options.hotspotSeed || null;
 
     // HouseDefinitionsはChunkManager内で使用されるが、ここでも保持
     this.houseDefinitions = new HouseDefinitions(0, 0, rnd); // サイズは無意味になる
 
     // チャンクマネージャーの初期化
-    this.chunkManager = new ChunkManager(scene, this, rnd);
+    this.chunkManager = new ChunkManager(scene, this, rnd, {
+      mapGenerationMode: this.mapGenerationMode,
+      hotspotSeed: this.hotspotSeed,
+    });
 
     this.houses = []; // 現在ロードされている家リスト
     this.houseRoofGroups = {};
@@ -528,6 +534,24 @@ class WorldManager {
   getZoneById(zoneId) {
     // 固定ゾーンはないので、家を検索
     return this.houses.find(h => h.id === zoneId) || null;
+  }
+
+  getMapMutators() {
+    return this.chunkManager?.mapMutators || null;
+  }
+
+  getHotspotGenerator() {
+    return this.chunkManager?.hotspotGenerator || null;
+  }
+
+  getWaterFlowInfo(x, y) {
+    if (!this.chunkManager) return { inWater: false, flow: { x: 0, y: 0 }, speed: 0, speedMultiplier: 1 };
+    return this.chunkManager.getWaterFlowInfo(x, y);
+  }
+
+  getTerrainInfo(x, y) {
+    if (!this.chunkManager) return { terrain: 'land', inWater: false, flow: { x: 0, y: 0 }, speed: 0, speedMultiplier: 1 };
+    return this.chunkManager.getTerrainInfo(x, y);
   }
 }
 
