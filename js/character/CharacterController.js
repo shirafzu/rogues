@@ -44,10 +44,15 @@ class CharacterController {
       : null;
 
     this.inputState = {
-      activePointerId: null,
+      activePointerId: null, // 移動用の指
       touchStartPos: null,
       touchCurrentPos: null,
       touchStartTime: 0,
+      actionPointerId: null, // 攻撃/回避用の指（セカンダリ）
+      actionStartPos: null,
+      actionCurrentPos: null,
+      actionStartTime: 0,
+      lastActionKind: null,
     };
 
     // 長距離移動の発動距離閾値
@@ -58,6 +63,7 @@ class CharacterController {
     this.useInput = options.useInput !== undefined ? options.useInput : true;
     this.abilityMap = options.abilityMap || {};
     this.activeAbilities = new Set();
+    this.comboManager = null;
     this._entityId = null; // EntityManagerによって設定される
 
     // ステータスラベル
@@ -148,6 +154,25 @@ class CharacterController {
   }
 
   /**
+   * コンボマネージャーを設定
+   */
+  setComboManager(manager) {
+    this.comboManager = manager;
+  }
+
+  /**
+   * Abilityインスタンスを実行し、必要ならアクティブ管理に登録
+   */
+  executeAbilityInstance(ability, context = {}) {
+    if (!ability) return false;
+    const executed = ability.execute(context);
+    if (executed && ability.isActive && ability.isActive()) {
+      this.activeAbilities.add(ability);
+    }
+    return executed;
+  }
+
+  /**
    * クイックスロットにアイテムをセット
    */
   setQuickSlotItem(itemId) {
@@ -204,7 +229,6 @@ class CharacterController {
 
   handlePointerDown(pointer) {
     if (this.isDeadFlag) return;
-    if (this.inputState.activePointerId !== null) return;
 
     // UI上の操作は無視
     if (this.scene.uiManager && typeof this.scene.uiManager.isPointerOnUI === 'function') {
@@ -213,25 +237,77 @@ class CharacterController {
       }
     }
 
-    this.inputState.activePointerId = pointer.id;
-    this.inputState.touchStartPos = { x: pointer.x, y: pointer.y };
-    this.inputState.touchCurrentPos = { x: pointer.x, y: pointer.y };
-    this.inputState.touchStartTime = this.scene.time.now;
+    const now = this.scene.time.now;
+
+    // 移動用ポインタ未使用なら移動＋アクションとして扱う
+    if (this.inputState.activePointerId === null) {
+      this.inputState.activePointerId = pointer.id;
+      this.inputState.touchStartPos = { x: pointer.x, y: pointer.y };
+      this.inputState.touchCurrentPos = { x: pointer.x, y: pointer.y };
+      this.inputState.touchStartTime = now;
+
+      // 単指操作でもアクションを拾えるよう同じポインタをセット
+      this.inputState.actionPointerId = pointer.id;
+      this.inputState.actionStartPos = { x: pointer.x, y: pointer.y };
+      this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
+      this.inputState.actionStartTime = now;
+      return;
+    }
+
+    // セカンダリ（攻撃/回避）ポインタとして使用
+    if (this.inputState.actionPointerId === null) {
+      this.inputState.actionPointerId = pointer.id;
+      this.inputState.actionStartPos = { x: pointer.x, y: pointer.y };
+      this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
+      this.inputState.actionStartTime = now;
+      return;
+    }
   }
 
   handlePointerMove(pointer) {
-    if (pointer.id !== this.inputState.activePointerId) return;
-    this.inputState.touchCurrentPos = { x: pointer.x, y: pointer.y };
+    if (pointer.id === this.inputState.activePointerId) {
+      this.inputState.touchCurrentPos = { x: pointer.x, y: pointer.y };
+    }
+    if (pointer.id === this.inputState.actionPointerId) {
+      this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
+    }
   }
 
   handlePointerUp(pointer) {
-    if (pointer.id !== this.inputState.activePointerId) return;
+    // 移動ポインタ/アクションポインタ以外は無視
+    if (
+      pointer.id !== this.inputState.activePointerId &&
+      pointer.id !== this.inputState.actionPointerId
+    ) {
+      return;
+    }
 
+    const hasSecondaryAction =
+      this.inputState.actionPointerId !== null &&
+      this.inputState.actionPointerId !== this.inputState.activePointerId;
+    // すでに別指がアクション担当の場合、移動指の離脱では攻撃しない
+    if (pointer.id === this.inputState.activePointerId && hasSecondaryAction) {
+      if (!this.isAbilityBlockingMovement()) {
+        this.sprite.setVelocity(0, 0);
+      }
+      this.inputState.activePointerId = null;
+      this.inputState.touchStartPos = null;
+      this.inputState.touchCurrentPos = null;
+      this.inputState.touchStartTime = 0;
+      return;
+    }
+
+    const now = this.scene.time.now;
     const endPos = { x: pointer.x, y: pointer.y };
-    const dx = endPos.x - this.inputState.touchStartPos.x;
-    const dy = endPos.y - this.inputState.touchStartPos.y;
+    const useActionData =
+      pointer.id === this.inputState.actionPointerId || this.inputState.actionPointerId === null;
+    const startPos = useActionData
+      ? this.inputState.actionStartPos || this.inputState.touchStartPos || endPos
+      : this.inputState.touchStartPos || endPos;
+    const dx = endPos.x - startPos.x;
+    const dy = endPos.y - startPos.y;
     const distance = Math.hypot(dx, dy);
-    const duration = this.scene.time.now - this.inputState.touchStartTime;
+    const duration = now - (useActionData ? this.inputState.actionStartTime || now : this.inputState.touchStartTime || now);
 
     const tapMaxDistance = 20;
     const tapMaxDuration = 200;
@@ -250,24 +326,48 @@ class CharacterController {
       this.inputState.touchStartPos = null;
       this.inputState.touchCurrentPos = null;
       this.inputState.touchStartTime = 0;
+      this.inputState.actionPointerId = null;
+      this.inputState.actionStartPos = null;
+      this.inputState.actionCurrentPos = null;
+      this.inputState.actionStartTime = 0;
       return;
     }
 
-    // 入力判定の優先順位
-    // 1. タップ（瞬間・最短距離）
-    if (distance <= tapMaxDistance && duration <= tapMaxDuration) {
-      const cam = this.scene.cameras.main;
-      const worldPoint = cam.getWorldPoint(pointer.x, pointer.y);
-      this.triggerAbility("tap", { pointer: worldPoint });
+    const cam = this.scene.cameras.main;
+    const worldPoint = cam.getWorldPoint(pointer.x, pointer.y);
+    const isSecondaryAction =
+      this.inputState.activePointerId !== null &&
+      this.inputState.actionPointerId !== null &&
+      pointer.id === this.inputState.actionPointerId &&
+      this.inputState.actionPointerId !== this.inputState.activePointerId;
+    const actionContext = {
+      pointer: worldPoint,
+      direction: { x: dx, y: dy },
+      forceRanged: isSecondaryAction,
+    };
 
-      // UI通知
+    // 入力判定の優先順位
+    // 1. タップ / 長押し判定（距離が短い）
+    if (distance <= tapMaxDistance) {
+      if (duration <= tapMaxDuration) {
+        const executed = this.handleComboInput("tap", actionContext);
+        if (!executed) {
+          this.triggerAbility("tap", { pointer: worldPoint });
+        }
+      } else {
+        this.handleComboInput("long", actionContext);
+      }
+
       if (typeof this.callbacks.onTapInput === "function") {
         this.callbacks.onTapInput(worldPoint.x, worldPoint.y);
       }
     }
     // 2. フリック（短時間・短距離）
     else if (distance >= flickMinDistance && duration <= flickMaxDuration) {
-      this.triggerAbility("flick", { direction: { x: dx, y: dy } });
+      const executed = this.handleComboInput("avoid", actionContext);
+      if (!executed) {
+        this.triggerAbility("flick", { direction: { x: dx, y: dy } });
+      }
 
       // UI通知
       if (typeof this.callbacks.onFlickInput === "function") {
@@ -285,7 +385,6 @@ class CharacterController {
       if (typeof this.callbacks.onLongSwipeInput === "function") {
         const startWorldX = this.sprite.x;
         const startWorldY = this.sprite.y;
-        const cam = this.scene.cameras.main;
         const endWorldPoint = cam.getWorldPoint(endPos.x, endPos.y);
         this.callbacks.onLongSwipeInput(startWorldX, startWorldY, endWorldPoint.x, endWorldPoint.y);
       }
@@ -295,10 +394,19 @@ class CharacterController {
       this.sprite.setVelocity(0, 0);
     }
 
-    this.inputState.activePointerId = null;
-    this.inputState.touchStartPos = null;
-    this.inputState.touchCurrentPos = null;
-    this.inputState.touchStartTime = 0;
+    if (pointer.id === this.inputState.actionPointerId) {
+      this.inputState.actionPointerId = null;
+      this.inputState.actionStartPos = null;
+      this.inputState.actionCurrentPos = null;
+      this.inputState.actionStartTime = 0;
+    }
+
+    if (pointer.id === this.inputState.activePointerId) {
+      this.inputState.activePointerId = null;
+      this.inputState.touchStartPos = null;
+      this.inputState.touchCurrentPos = null;
+      this.inputState.touchStartTime = 0;
+    }
   }
 
   triggerAbility(slot, context = {}) {
@@ -309,6 +417,25 @@ class CharacterController {
       this.activeAbilities.add(ability);
     }
     return executed;
+  }
+
+  handleComboInput(kind, context = {}) {
+    if (this.comboManager) {
+      const executed = this.comboManager.handleInput(kind, context);
+      if (executed) {
+        this.inputState.lastActionKind = kind;
+        return true;
+      }
+    }
+
+    // フォールバック（コンボが未設定のとき）
+    if (kind === "tap" || kind === "long") {
+      return this.triggerAbility("tap", context);
+    }
+    if (kind === "avoid") {
+      return this.triggerAbility("flick", context);
+    }
+    return false;
   }
 
   updateActiveAbilities(delta) {
@@ -345,6 +472,9 @@ class CharacterController {
     }
 
     this.updateActiveAbilities(delta);
+    if (this.comboManager) {
+      this.comboManager.update(delta);
+    }
 
     // AI更新
     if (this.aiController) {

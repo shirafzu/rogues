@@ -28,6 +28,7 @@ class MainScene extends Phaser.Scene {
     this.fireSystem = null;
     this.combatSystem = null;
     this.interiorFog = null;
+    this.environmentSystem = null;
   }
 
   preload() {
@@ -46,11 +47,19 @@ class MainScene extends Phaser.Scene {
     // SEED値の取得と乱数生成器の初期化
     const params = new URLSearchParams(window.location.search);
     const seed = params.get("seed") || Phaser.Math.RND.uuid();
-    console.log("Map Seed:", seed);
+    const mapGenerationMode = params.get("mapgen") || "biome";
+    const hotspotSeed = params.get("hotspotSeed") || null;
+    console.log("Map Seed:", seed, "MapGen:", mapGenerationMode, "HotspotSeed:", hotspotSeed || "weekly");
     this.rnd = new Phaser.Math.RandomDataGenerator([seed]);
 
     // WorldManagerを初期化
-    this.worldManager = new WorldManager(this, this.rnd);
+    this.worldManager = new WorldManager(this, this.rnd, {
+      mapGenerationMode,
+      hotspotSeed,
+    });
+
+    // プロシージャルスプライト生成（外部アセットなしで木/岩/茂みを用意）
+    SpriteFactory.register(this, this.rnd);
     // buildStaticLayoutは廃止
 
     // 化学エンジン（火属性）
@@ -143,12 +152,27 @@ class MainScene extends Phaser.Scene {
     // EffectManagerを初期化
     this.effectManager = new EffectManager(this);
 
+    // 環境システム（川の流れ・移動補正）
+    this.environmentSystem = new EnvironmentSystem(this, {
+      worldManager: this.worldManager,
+      entityManager: this.entityManager,
+    });
+
     // ScentManagerを初期化
     this.scentManager = new ScentManager(this);
+
+    // NavigationManagerを初期化（敵のパスファインディング用）
+    this.navigationManager = new NavigationManager(this, {
+      cellSize: 40,
+      padding: 15,
+      cacheTimeout: 2000, // パス再計算間隔（ms）- 長くするとパフォーマンス向上
+      debug: false // trueにするとパスが可視化される（パフォーマンス影響あり）
+    });
 
     // MinimapManagerを初期化
     this.minimapManager = new MinimapManager(this, {
       biomeGenerator: this.worldManager.chunkManager.biomeGenerator,
+      hotspotGenerator: this.worldManager.chunkManager.hotspotGenerator,
       worldManager: this.worldManager,
       width: 200,
       height: 200
@@ -233,6 +257,9 @@ class MainScene extends Phaser.Scene {
     // エンティティの更新
     this.entityManager.updateAll(delta);
 
+    // 環境（川の流れ・移動補正）
+    this.environmentSystem?.update(delta);
+
     // サバイバルHUDの更新
     if (this.uiManager) {
       this.uiManager.updateSurvivalHUD();
@@ -282,6 +309,9 @@ class MainScene extends Phaser.Scene {
 
     // ScentManagerの更新
     this.scentManager?.update(time, delta);
+
+    // NavigationManagerの更新（デバッグ描画用）
+    this.navigationManager?.update();
 
     // ミニマップの更新
     if (this.minimapManager && this.playerController && this.playerController.sprite) {
@@ -487,6 +517,15 @@ class MainScene extends Phaser.Scene {
       longSwipe: longDistanceOption.abilityFactory?.(player) || null,
     };
     player.setAbilityMap(abilityMap);
+    // コンボ＆遠近自動切替のロードアウトをセット
+    const dualLoadouts = createDualEquipmentLoadouts(player);
+    player.setComboManager(
+      new ComboManager(player, {
+        loadouts: dualLoadouts,
+        rangeThreshold: 260,
+        defaultLoadout: "A",
+      })
+    );
 
     // EntityManagerに追加
     this.entityManager.add(this.playerController);
