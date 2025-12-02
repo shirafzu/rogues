@@ -8,6 +8,14 @@ const RACE_DEFINITIONS = {
         id: "human",
         name: "Human",
         description: "Balanced survivor. Needs food and water.",
+        terrainMultipliers: {
+            water: 0.65,
+            river: 0.6,
+            mud: 0.75,
+            ice: 0.95,
+            grass: 1.0,
+            stone: 1.0
+        },
         stats: {
             hunger: {
                 id: "hunger",
@@ -36,6 +44,14 @@ const RACE_DEFINITIONS = {
         id: "dryad",
         name: "Dryad",
         description: "Plant-based. Needs water and light. Roots to heal.",
+        terrainMultipliers: {
+            water: 0.75,
+            river: 0.7,
+            mud: 0.85,
+            ice: 0.9,
+            grass: 1.05,
+            stone: 0.95
+        },
         stats: {
             hydration: {
                 id: "hydration",
@@ -66,6 +82,14 @@ const RACE_DEFINITIONS = {
         id: "slime",
         name: "Slime",
         description: "Amorphous. Consumes anything for mass.",
+        terrainMultipliers: {
+            water: 0.9,
+            river: 0.85,
+            mud: 1.1,
+            ice: 0.8,
+            grass: 1.0,
+            stone: 1.0
+        },
         // Note:
         // - Stats: Mass (Health + Hunger combined?)
         // - Recovery: Eat items (wood, stone, trash) or absorb enemies.
@@ -88,6 +112,14 @@ const RACE_DEFINITIONS = {
         id: "automaton",
         name: "Automaton",
         description: "Mechanical. Needs fuel/battery. No natural regen.",
+        terrainMultipliers: {
+            water: 0.55,
+            river: 0.5,
+            mud: 0.7,
+            ice: 1.0,
+            grass: 0.95,
+            stone: 1.05
+        },
         // Note:
         // - Stats: Energy (Battery), Heat (limit activity)
         // - Recovery: Batteries, Gasoline.
@@ -118,6 +150,14 @@ const RACE_DEFINITIONS = {
         id: "ghost",
         name: "Ghost",
         description: "Ethereal. Needs souls. Phases through walls.",
+        terrainMultipliers: {
+            water: 1.0,
+            river: 1.0,
+            mud: 1.0,
+            ice: 1.0,
+            grass: 1.0,
+            stone: 1.0
+        },
         // Note:
         // - Stats: Ectoplasm / Soul Power
         // - Recovery: Drain enemies. Cannot eat physical food.
