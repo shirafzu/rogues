@@ -517,15 +517,13 @@ class MainScene extends Phaser.Scene {
       longSwipe: longDistanceOption.abilityFactory?.(player) || null,
     };
     player.setAbilityMap(abilityMap);
-    // コンボ＆遠近自動切替のロードアウトをセット
-    const dualLoadouts = createDualEquipmentLoadouts(player);
-    player.setComboManager(
-      new ComboManager(player, {
-        loadouts: dualLoadouts,
-        rangeThreshold: 260,
-        defaultLoadout: "A",
-      })
-    );
+    // コンボ＆遠近自動切替のロードアウトをセット（剣/フック/槍）
+    const equipments = createWeaponEquipments(player);
+    player.setComboManager(new ComboManager(player, {
+      equipments,
+      rangeThreshold: 260,
+      resetMs: 1200,
+    }));
 
     // EntityManagerに追加
     this.entityManager.add(this.playerController);
