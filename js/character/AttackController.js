@@ -1,54 +1,19 @@
-// 共通: 入力方向 → 速度方向 → 向き の順で方向を取得
-function getDirectionFromInput(character) {
-  const input = character?.inputState;
-  if (!input || input.activePointerId === null || !input.touchCurrentPos || !input.touchStartPos) return null;
-  const dx = input.touchCurrentPos.x - input.touchStartPos.x;
-  const dy = input.touchCurrentPos.y - input.touchStartPos.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return null;
-  return { x: dx / len, y: dy / len };
-}
+// AttackController - BaseActionControllerを継承したアクションコントローラー
+// 方向計算関数はDirectionUtilsに移動
 
-function getDirectionFromVelocity(character) {
-  const body = character?.sprite?.body;
-  if (!body || !body.velocity) return null;
-  const vx = body.velocity.x || 0;
-  const vy = body.velocity.y || 0;
-  const len = Math.hypot(vx, vy);
-  if (len < 0.1) return null;
-  return { x: vx / len, y: vy / len };
-}
-
-function getFacingDirection(character) {
-  const sprite = character?.sprite;
-  if (!sprite || typeof sprite.rotation !== "number") return null;
-  return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
-}
-
-class AttackController {
+class AttackController extends BaseActionController {
   constructor(character, config = {}) {
-    this.character = character;
-    this.config = {
+    super(character, {
       cooldown: 250,
       ...config,
-    };
-    this.lastAttackTime = 0;
+    });
   }
 
   requestAttack(_pointer) {
     return false;
   }
 
-  update() {}
-
-  canAttack() {
-    const now = this.character.scene.time.now;
-    return now - this.lastAttackTime >= this.config.cooldown;
-  }
-
-  recordAttackTime() {
-    this.lastAttackTime = this.character.scene.time.now;
-  }
+  // canExecute()とrecordExecution()はBaseActionControllerから継承
 }
 
 class MeleeAoEAttackController extends AttackController {
@@ -62,13 +27,10 @@ class MeleeAoEAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
+    if (!this.canExecute()) return false;
 
-    // spriteが破壊されている場合は攻撃できない
     const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
-
-    this.recordAttackTime();
+    this.recordExecution();
     const centerX = sprite.x;
     const centerY = sprite.y;
 
@@ -113,10 +75,7 @@ class AlternatingSlashAttackController extends AttackController {
   }
 
   requestAttack() {
-    if (!this.canAttack()) return false;
-
-    // spriteが破壊されている場合は攻撃できない
-    if (!this.character.sprite || !this.character.sprite.active) return false;
+    if (!this.canExecute()) return false;
 
     const combat = this.character.scene.combatSystem;
     if (!combat) return false;
@@ -124,7 +83,7 @@ class AlternatingSlashAttackController extends AttackController {
     const target = combat.getNearestEnemySprite(this.character.sprite);
     if (!target) return false;
 
-    this.recordAttackTime();
+    this.recordExecution();
     this.swingLeft = !this.swingLeft;
 
     const dirX = target.x - this.character.sprite.x;
@@ -170,17 +129,14 @@ class ProjectileAttackController extends AttackController {
   }
 
   requestAttack(pointerOrContext) {
-    if (!this.canAttack()) return false;
-
-    // spriteが破壊されている場合は攻撃できない
-    if (!this.character.sprite || !this.character.sprite.active) return false;
+    if (!this.canExecute()) return false;
 
     const combat = this.character.scene.combatSystem;
     if (!combat) return false;
     const { target, aimX, aimY } = this._resolveAim(pointerOrContext, combat);
     if (!aimX || !aimY) return false;
 
-    this.recordAttackTime();
+    this.recordExecution();
     const startX = this.character.sprite.x;
     const startY = this.character.sprite.y;
     const projectile = this.character.scene.add.circle(
@@ -209,8 +165,8 @@ class ProjectileAttackController extends AttackController {
 
   _resolveAim(_context, combat) {
     const sprite = this.character.sprite;
-    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
-    const dirFromFacing = getFacingDirection(this.character);
+    const dirFromInput = DirectionUtils.getDirectionFromInput(this.character) || DirectionUtils.getDirectionFromVelocity(this.character);
+    const dirFromFacing = DirectionUtils.getFacingDirection(this.character);
 
     // 1) 有効射程内で最も近い敵
     const targetSprite = combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range });
@@ -270,11 +226,10 @@ class MultiHitAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
-    const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
+    if (!this.canExecute()) return false;
 
-    this.recordAttackTime();
+    const sprite = this.character.sprite;
+    this.recordExecution();
 
     const dir = this._getDirection(pointer);
     const scene = this.character.scene;
@@ -353,11 +308,10 @@ class RisingSlashAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
-    const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
+    if (!this.canExecute()) return false;
 
-    this.recordAttackTime();
+    const sprite = this.character.sprite;
+    this.recordExecution();
 
     const scene = this.character.scene;
     const centerX = sprite.x;
@@ -415,11 +369,10 @@ class LinePierceAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
-    const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
+    if (!this.canExecute()) return false;
 
-    this.recordAttackTime();
+    const sprite = this.character.sprite;
+    this.recordExecution();
 
     const { startX, startY, dir } = this._resolveDirection();
     const endX = startX + dir.x * this.config.length;
@@ -443,8 +396,8 @@ class LinePierceAttackController extends AttackController {
   _resolveDirection() {
     const sprite = this.character.sprite;
     const combat = this.character.scene?.combatSystem;
-    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
-    const dirFromFacing = getFacingDirection(this.character);
+    const dirFromInput = DirectionUtils.getDirectionFromInput(this.character) || DirectionUtils.getDirectionFromVelocity(this.character);
+    const dirFromFacing = DirectionUtils.getFacingDirection(this.character);
     const target = combat?.getNearestEnemySprite
       ? combat.getNearestEnemySprite(sprite, { maxDistance: this.config.length })
       : null;
@@ -496,11 +449,11 @@ class HookSlamAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
-    const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
+    if (!this.canExecute()) return false;
 
-    this.recordAttackTime();
+    const sprite = this.character.sprite;
+    this.recordExecution();
+
     const dir = this._getDirection(pointer);
     const centerX = sprite.x + dir.x * this.config.forwardOffset;
     const centerY = sprite.y + dir.y * this.config.forwardOffset;
@@ -561,15 +514,14 @@ class HookShotAttackController extends AttackController {
   }
 
   requestAttack(pointer) {
-    if (!this.canAttack()) return false;
-    const sprite = this.character.sprite;
-    if (!sprite || !sprite.active) return false;
+    if (!this.canExecute()) return false;
 
+    const sprite = this.character.sprite;
     const combat = this.character.scene?.combatSystem;
     const { anchor, target } = this._resolveAnchor(combat);
     if (!anchor) return false;
 
-    this.recordAttackTime();
+    this.recordExecution();
     this._drawRope(sprite.x, sprite.y, anchor.x, anchor.y);
     this._moveToward(anchor, target);
     return true;
@@ -577,8 +529,8 @@ class HookShotAttackController extends AttackController {
 
   _resolveAnchor(combat) {
     const sprite = this.character.sprite;
-    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
-    const dirFromFacing = getFacingDirection(this.character);
+    const dirFromInput = DirectionUtils.getDirectionFromInput(this.character) || DirectionUtils.getDirectionFromVelocity(this.character);
+    const dirFromFacing = DirectionUtils.getFacingDirection(this.character);
     const targetSprite = combat?.getNearestEnemySprite
       ? combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range })
       : null;
