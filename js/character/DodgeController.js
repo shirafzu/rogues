@@ -395,8 +395,17 @@ class HookGrappleDodgeController extends DodgeController {
     bodies.forEach((body) => {
       const go = body.gameObject;
       if (!go || !go.getData) return;
+
       const kind = go.getData("kind");
-      const allowKind = new Set(["tree", "rock", "object", "wall", "house_object"]);
+
+      // terrain オブジェクトをチェック（木、岩など）
+      if (kind === "terrain") {
+        addAnchor(go);
+        return;
+      }
+
+      // その他の特殊なオブジェクトタイプもチェック
+      const allowKind = new Set(["wall", "door", "cover", "crate", "baseNode"]);
       if (allowKind.has(kind)) {
         addAnchor(go);
       }
