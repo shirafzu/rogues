@@ -518,7 +518,14 @@ class MainScene extends Phaser.Scene {
     };
     player.setAbilityMap(abilityMap);
     // コンボ＆遠近自動切替のロードアウトをセット（剣/フック/槍）
-    const equipments = createWeaponEquipments(player);
+    let equipments = createWeaponEquipments(player);
+    if (selection.weaponKeys && Array.isArray(selection.weaponKeys) && selection.weaponKeys.length > 0) {
+      const keySet = new Set(selection.weaponKeys);
+      const filtered = equipments.filter((eq) => keySet.has(eq.key));
+      if (filtered.length > 0) {
+        equipments = filtered;
+      }
+    }
     player.setComboManager(new ComboManager(player, {
       equipments,
       rangeThreshold: 260,

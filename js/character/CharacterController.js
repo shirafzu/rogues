@@ -484,10 +484,9 @@ class CharacterController {
   handleComboInput(kind, context = {}) {
     if (this.comboManager) {
       const executed = this.comboManager.handleAction(kind, context);
-      if (executed) {
-        this.inputState.lastActionKind = kind;
-        return true;
-      }
+      this.inputState.lastActionKind = kind;
+      // ComboManagerが存在する場合はフォールバックさせずに処理完了とみなす
+      return executed || true;
     }
 
     // フォールバック（コンボが未設定のとき）

@@ -184,6 +184,15 @@ class UIManager {
   showCharacterSelection() {
     if (document.getElementById("character-select-overlay")) return;
 
+    const defaultSelection = {
+      race: "human",
+      movementKey: "basic",
+      dodgeKey: "dash",
+      attackKey: "aoe",
+      longDistanceKey: "none",
+    };
+    let selectedWeaponKeys = new Set(["A", "B", "C"]);
+
     const overlay = document.createElement("div");
     overlay.id = "character-select-overlay";
     Object.assign(overlay.style, {
@@ -192,7 +201,7 @@ class UIManager {
       left: "0",
       width: "100%",
       height: "100%",
-      background: "rgba(0,0,0,0.85)",
+      background: "rgba(0,0,0,0.88)",
       color: "#fff",
       display: "flex",
       flexDirection: "column",
@@ -209,110 +218,173 @@ class UIManager {
     });
 
     const title = document.createElement("h2");
-    title.textContent = "Customize Your Character";
+    title.textContent = "武器を選択";
     title.style.margin = "0";
     overlay.appendChild(title);
 
     const hint = document.createElement("p");
-    hint.textContent = "Choose movement, dodge, and attack styles (prototype).";
+    hint.textContent = "装備する武器を選んで開始します（移動/回避はデフォルト設定）。";
     hint.style.margin = "0";
     hint.style.fontSize = "14px";
     overlay.appendChild(hint);
 
-    const sectionsContainer = document.createElement("div");
-    Object.assign(sectionsContainer.style, {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: "20px",
-      justifyContent: "center",
+    const weaponList = document.createElement("div");
+    Object.assign(weaponList.style, {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+      gap: "12px",
+      width: "100%",
       maxWidth: "900px",
     });
 
-    const createOptionSection = (labelText, optionsMap) => {
-      const section = document.createElement("div");
-      Object.assign(section.style, {
-        minWidth: "220px",
-        maxWidth: "260px",
-        background: "rgba(255,255,255,0.05)",
+    const weapons = [
+      {
+        key: "A",
+        name: "剣",
+        actions: { 短: "3連斬", 長: "ライジング斬り", 避: "短ダッシュ回避", 遠: "オート連射" },
+      },
+      {
+        key: "B",
+        name: "フック",
+        actions: { 短: "フックスラム", 長: "フックショット", 避: "方向45°内フック突進 / 無ければ伸びるだけ", 遠: "長距離フック" },
+      },
+      {
+        key: "C",
+        name: "槍",
+        actions: { 短: "貫通突き", 長: "強貫通突き", 避: "加速回避＋衝撃", 遠: "チャージ貫通射出" },
+      },
+    ];
+
+    const renderWeaponCard = (weapon) => {
+      const card = document.createElement("label");
+      card.dataset.weaponKey = weapon.key;
+      Object.assign(card.style, {
         padding: "12px",
-        borderRadius: "8px",
+        borderRadius: "10px",
+        border: "2px solid #4dd0e1",
+        background: "#1f1f1f",
+        color: "#fff",
+        cursor: "pointer",
+        display: "block",
+        transition: "transform 0.1s, border-color 0.1s, background 0.1s",
       });
 
-      const label = document.createElement("label");
-      label.textContent = labelText;
-      label.style.display = "block";
-      label.style.marginBottom = "6px";
-      section.appendChild(label);
-
-      const select = document.createElement("select");
-      Object.assign(select.style, {
-        width: "100%",
-        padding: "6px",
-      });
-
-      Object.entries(optionsMap).forEach(([key, option]) => {
-        const opt = document.createElement("option");
-        opt.value = key;
-        opt.textContent = option.name;
-        select.appendChild(opt);
-      });
-
-      const desc = document.createElement("p");
-      desc.style.fontSize = "13px";
-      desc.style.minHeight = "48px";
-      desc.style.margin = "8px 0 0";
-
-      const updateDescription = () => {
-        const option = optionsMap[select.value];
-        desc.textContent = option?.description || "";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedWeaponKeys.has(weapon.key);
+      checkbox.style.marginRight = "8px";
+      checkbox.onchange = () => {
+        if (checkbox.checked) {
+          selectedWeaponKeys.add(weapon.key);
+        } else {
+          selectedWeaponKeys.delete(weapon.key);
+        }
+        const active = checkbox.checked;
+        card.style.borderColor = active ? "#81d4fa" : "#4dd0e1";
+        card.style.background = active ? "#263238" : "#1f1f1f";
+        card.style.transform = active ? "scale(1.02)" : "scale(1)";
       };
-      select.addEventListener("change", updateDescription);
-      updateDescription();
 
-      section.appendChild(select);
-      section.appendChild(desc);
-      return { section, select };
+      const titleRow = document.createElement("div");
+      titleRow.style.display = "flex";
+      titleRow.style.alignItems = "center";
+      titleRow.style.gap = "4px";
+      const nameEl = document.createElement("span");
+      nameEl.textContent = weapon.name;
+      nameEl.style.fontSize = "18px";
+      nameEl.style.fontWeight = "bold";
+      titleRow.appendChild(checkbox);
+      titleRow.appendChild(nameEl);
+
+      const actionList = document.createElement("ul");
+      actionList.style.listStyle = "none";
+      actionList.style.padding = "4px 0 0 0";
+      actionList.style.margin = "0";
+      Object.entries(weapon.actions).forEach(([label, desc]) => {
+        const li = document.createElement("li");
+        li.style.fontSize = "13px";
+        li.style.color = "#bdbdbd";
+        li.textContent = `${label}: ${desc}`;
+        actionList.appendChild(li);
+      });
+
+      card.appendChild(titleRow);
+      card.appendChild(actionList);
+      weaponList.appendChild(card);
     };
 
-    const raceSection = createOptionSection("Race", window.RACE_DEFINITIONS || { human: { name: "Human", description: "Default" } });
+    weapons.forEach(renderWeaponCard);
+    overlay.appendChild(weaponList);
 
-    const movementSection = createOptionSection("Movement", AVAILABLE_MOVEMENTS);
-    const dodgeSection = createOptionSection("Dodge", AVAILABLE_DODGES);
-    const attackSection = createOptionSection("Attack", AVAILABLE_ATTACKS);
-    const longDistanceSection = createOptionSection("Long Distance Travel", AVAILABLE_LONG_DISTANCE_MODES);
-
-    sectionsContainer.appendChild(raceSection.section);
-    sectionsContainer.appendChild(movementSection.section);
-    sectionsContainer.appendChild(dodgeSection.section);
-    sectionsContainer.appendChild(attackSection.section);
-    sectionsContainer.appendChild(longDistanceSection.section);
-    overlay.appendChild(sectionsContainer);
-
-    const startButton = document.createElement("button");
-    startButton.textContent = "Start";
-    Object.assign(startButton.style, {
-      padding: "10px 18px",
-      fontSize: "16px",
-      cursor: "pointer",
+    const legsContainer = document.createElement("div");
+    Object.assign(legsContainer.style, {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+      gap: "12px",
+      width: "100%",
+      maxWidth: "900px",
     });
 
-    startButton.addEventListener("click", () => {
-      const selection = {
-        race: raceSection.select.value,
-        movementKey: movementSection.select.value,
-        dodgeKey: dodgeSection.select.value,
-        attackKey: attackSection.select.value,
-        longDistanceKey: longDistanceSection.select.value,
-      };
-
-      if (typeof this.onCharacterSelected === 'function') {
-        this.onCharacterSelected(selection);
+    const createSelectBlock = (label, optionsMap, defaultKey) => {
+      const block = document.createElement("div");
+      Object.assign(block.style, {
+        padding: "12px",
+        borderRadius: "10px",
+        background: "rgba(255,255,255,0.05)",
+      });
+      const lbl = document.createElement("div");
+      lbl.textContent = label;
+      lbl.style.marginBottom = "6px";
+      const select = document.createElement("select");
+      select.style.width = "100%";
+      select.style.padding = "6px";
+      Object.entries(optionsMap || {}).forEach(([key, def]) => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = def?.name || key;
+        select.appendChild(opt);
+      });
+      if (defaultKey && optionsMap?.[defaultKey]) {
+        select.value = defaultKey;
       }
+      block.appendChild(lbl);
+      block.appendChild(select);
+      return { block, select };
+    };
 
-      overlay.remove();
+    const moveSelect = createSelectBlock("移動（足装備）", window.AVAILABLE_MOVEMENTS || {}, "basic");
+    const longSelect = createSelectBlock("長距離移動（足装備）", window.AVAILABLE_LONG_DISTANCE_MODES || {}, "none");
+    legsContainer.appendChild(moveSelect.block);
+    legsContainer.appendChild(longSelect.block);
+    overlay.appendChild(legsContainer);
+
+    const startBtn = document.createElement("button");
+    startBtn.textContent = "出撃";
+    Object.assign(startBtn.style, {
+      padding: "12px 32px",
+      borderRadius: "8px",
+      border: "none",
+      background: "#4dd0e1",
+      color: "#000",
+      fontSize: "16px",
+      fontWeight: "bold",
+      cursor: "pointer",
+      marginTop: "18px",
     });
+    startBtn.onclick = () => {
+      if (typeof this.onCharacterSelected === "function") {
+        const weaponKeys = Array.from(selectedWeaponKeys);
+        this.onCharacterSelected({
+          ...defaultSelection,
+          movementKey: moveSelect.select.value || defaultSelection.movementKey,
+          longDistanceKey: longSelect.select.value || defaultSelection.longDistanceKey,
+          weaponKeys,
+        });
+      }
+      overlay.remove();
+    };
+    overlay.appendChild(startBtn);
 
-    overlay.appendChild(startButton);
     document.body.appendChild(overlay);
   }
 

@@ -317,12 +317,12 @@ function createWeaponEquipments(character) {
           pullSpeed: 10,
           indicatorColor: 0x9fa8da,
         }),
-        avoid: new DodgeAbilityWrapper(character, ChainImpactDodgeController, {
-          distance: 170,
+        avoid: new DodgeAbilityWrapper(character, HookGrappleDodgeController, {
+          distance: 180,
           duration: 260,
           invincibleDuration: 220,
-          chainRadius: 220,
-          damagePerHit: 1,
+          hookRange: 280,
+          pullSpeed: 12,
         }),
         ranged: new AttackAbilityWrapper(character, HookShotAttackController, {
           range: 460,
