@@ -1,57 +1,114 @@
+class HoldRangedAction {
+  constructor(options = {}) {
+    this.mode = options.mode || "auto"; // auto | charge | aim
+    this.abilityFactory = options.abilityFactory;
+    this.interval = options.interval ?? 220;
+    this.maxShots = options.maxShots ?? 4;
+    this.maxChargeMs = options.maxChargeMs ?? 1200;
+    this.minChargeMs = options.minChargeMs ?? 200;
+    this.active = false;
+    this.elapsed = 0;
+    this.shots = 0;
+    this.nextShotAt = 0;
+    this.pointerId = null;
+    this.aimDir = { x: 1, y: 0 };
+  }
+
+  start(context = {}, runner) {
+    if (this.active) return false;
+    if (!this.abilityFactory || typeof runner !== "function") return false;
+    this.active = true;
+    this.elapsed = 0;
+    this.shots = 0;
+    this.nextShotAt = 0;
+    this.pointerId = context.pointerId ?? null;
+    this.aimDir = this._getDir(context) || { x: 1, y: 0 };
+    // 即時1発出す場合（auto用）
+    if (this.mode === "auto") {
+      this._fire(context, runner, 0, 1);
+      this.shots = 1;
+      this.nextShotAt = this.interval;
+    }
+    return true;
+  }
+
+  update(delta, context = {}, runner) {
+    if (!this.active) return;
+    this.elapsed += delta;
+    this.aimDir = this._getDir(context) || this.aimDir;
+
+    if (this.mode === "auto") {
+      while (this.shots < this.maxShots && this.elapsed >= this.nextShotAt) {
+        this._fire(context, runner, this.shots, 1);
+        this.shots += 1;
+        this.nextShotAt += this.interval;
+      }
+    }
+  }
+
+  release(context = {}, runner) {
+    if (!this.active) return false;
+    let fired = false;
+    if (this.mode === "charge") {
+      const ratio = Math.min(Math.max(this.elapsed, this.minChargeMs), this.maxChargeMs) / this.maxChargeMs;
+      fired = this._fire(context, runner, 0, ratio);
+    } else if (this.mode === "aim") {
+      fired = this._fire(context, runner, 0, 1);
+    }
+    this.active = false;
+    this.pointerId = null;
+    return fired;
+  }
+
+  _fire(context, runner, idx = 0, power = 1) {
+    if (!this.abilityFactory) return false;
+    const ability = this.abilityFactory(context, { index: idx, power, dir: this.aimDir, elapsed: this.elapsed });
+    if (!ability) return false;
+    return runner(ability, context);
+  }
+
+  _getDir(context) {
+    if (!context.pointer || !this.ownerSprite) return null;
+    const sprite = this.ownerSprite;
+    const dx = context.pointer.x - sprite.x;
+    const dy = context.pointer.y - sprite.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  }
+
+  setOwnerSprite(sprite) {
+    this.ownerSprite = sprite;
+  }
+}
+
 class ComboManager {
   constructor(character, options = {}) {
     this.character = character;
-    this.loadouts = options.loadouts || {};
+    this.equipments = options.equipments || [];
+    this.resetMs = options.resetMs ?? 1200;
     this.rangeThreshold = options.rangeThreshold ?? 260;
-    this.tapCount = 0;
-    this.longCount = 0;
-    this.lastLoadoutKey = options.defaultLoadout || Object.keys(this.loadouts)[0] || null;
+    this.indices = { tap: 0, long: 0, avoid: 0 };
+    this.lastActionAt = 0;
     this.statusTimer = null;
+    this.activeHold = null;
   }
 
-  /**
-   * 入力種別に応じて装備を決定し、近接/遠距離を自動判定して発動
-   */
-  handleInput(kind, context = {}) {
-    const loadoutKey = this._selectLoadout(kind);
-    if (!loadoutKey) return false;
-
-    const mode = this._shouldUseRanged(context) ? "ranged" : "melee";
-    const ability = this._getAbility(loadoutKey, mode, kind);
-    if (!ability) return false;
-
-    const executed = this._executeAbility(ability, context);
-    if (executed) {
-      this.lastLoadoutKey = loadoutKey;
-      this._flashStatus(`${loadoutKey}:${mode === "ranged" ? "遠" : "近"}`);
+  _maybeReset(now) {
+    if (now - this.lastActionAt > this.resetMs) {
+      this.indices = { tap: 0, long: 0, avoid: 0 };
     }
-    return executed;
   }
 
-  reset() {
-    this.tapCount = 0;
-    this.longCount = 0;
+  _getEquipment(kindKey = "tap") {
+    const list = this.equipments;
+    if (!list || list.length === 0) return null;
+    const idx = this.indices[kindKey] % list.length;
+    return { equipment: list[idx], index: idx };
   }
 
-  update(_delta) {
-    // 今回のプロトタイプでは特に継続処理なし
-  }
-
-  _selectLoadout(kind) {
-    if (kind === "tap") {
-      const key = this.tapCount % 2 === 0 ? "A" : "B";
-      this.tapCount += 1;
-      return key;
-    }
-    if (kind === "long") {
-      const key = this.longCount % 2 === 0 ? "A" : "B";
-      this.longCount += 1;
-      return key;
-    }
-    if (kind === "avoid") {
-      return this.lastLoadoutKey || "A";
-    }
-    return this.lastLoadoutKey || null;
+  _advance(kindKey = "tap") {
+    if (this.indices[kindKey] == null) this.indices[kindKey] = 0;
+    this.indices[kindKey] = (this.indices[kindKey] + 1) % Math.max(1, this.equipments.length);
   }
 
   _shouldUseRanged(context = {}) {
@@ -67,18 +124,76 @@ class ComboManager {
       target.x,
       target.y
     );
-    this.lastTargetDistance = dist;
     return dist >= this.rangeThreshold;
   }
 
-  _getAbility(loadoutKey, mode, kind) {
-    const loadout = this.loadouts[loadoutKey];
-    if (!loadout) return null;
-    const actionKey = kind === "long" ? "long" : kind === "avoid" ? "avoid" : "tap";
-    return loadout[mode]?.[actionKey] || null;
+  handleAction(kind, context = {}) {
+    const now = this.character.scene.time.now;
+    this._maybeReset(now);
+    const kindKey = kind === "avoid" ? "avoid" : kind === "long" ? "long" : "tap";
+    const { equipment } = this._getEquipment(kindKey) || {};
+    if (!equipment) return false;
+
+    const useRanged = this._shouldUseRanged(context);
+    const actions = equipment.actions || {};
+    const ability =
+      useRanged && actions.ranged
+        ? actions.ranged
+        : actions[kindKey];
+
+    if (!ability) return false;
+
+    const executed = this._runAbility(ability, context);
+    if (executed) {
+      this._advance(kindKey);
+      this.lastActionAt = now;
+      this._flashStatus(`${equipment.name || equipment.key || "Equip"}:${useRanged ? "遠" : "近"}`);
+    }
+    return executed;
   }
 
-  _executeAbility(ability, context) {
+  startHold(context = {}) {
+    const now = this.character.scene.time.now;
+    this._maybeReset(now);
+    const { equipment, index } = this._getEquipment("tap") || {};
+    if (!equipment || !equipment.actions?.rangedHold) return false;
+    const holdAction = equipment.actions.rangedHold;
+    holdAction.setOwnerSprite(this.character.sprite);
+    const started = holdAction.start(context, (ability, ctx) => this._runAbility(ability, ctx));
+    if (started) {
+      this.activeHold = { holdAction, pointerId: context.pointerId, equipmentIndex: index, equipment };
+      this._advance("tap");
+      this.lastActionAt = now;
+      this._flashStatus(`${equipment.name || equipment.key || "Equip"}:遠Hold`);
+    }
+    return started;
+  }
+
+  updateHold(delta, context = {}) {
+    if (!this.activeHold) return;
+    const { holdAction } = this.activeHold;
+    if (!holdAction || !holdAction.active) {
+      this.activeHold = null;
+      return;
+    }
+    holdAction.setOwnerSprite(this.character.sprite);
+    holdAction.update(delta, context, (ability, ctx) => this._runAbility(ability, ctx));
+  }
+
+  releaseHold(context = {}) {
+    if (!this.activeHold) return false;
+    const { holdAction } = this.activeHold;
+    holdAction.setOwnerSprite(this.character.sprite);
+    const fired = holdAction.release(context, (ability, ctx) => this._runAbility(ability, ctx));
+    this.activeHold = null;
+    return fired;
+  }
+
+  update() {
+    // reserved for future use
+  }
+
+  _runAbility(ability, context) {
     if (!ability) return false;
     if (typeof this.character.executeAbilityInstance === "function") {
       return this.character.executeAbilityInstance(ability, context);
@@ -92,106 +207,172 @@ class ComboManager {
     if (this.statusTimer) {
       this.statusTimer.remove(false);
     }
-    this.statusTimer = this.character.scene.time.delayedCall(650, () => {
+    this.statusTimer = this.character.scene.time.delayedCall(600, () => {
       this.character.updateStatusLabel("");
     });
   }
 }
 
-/**
- * 剣(A)とフック(B)のロードアウトをまとめて生成
- */
-function createDualEquipmentLoadouts(character) {
-  return {
-    A: {
-      name: "Sword",
-      melee: {
+function createWeaponEquipments(character) {
+  const createAutoRanged = (config = {}) =>
+    new HoldRangedAction({
+      mode: "auto",
+      interval: config.interval ?? 220,
+      maxShots: config.maxShots ?? 5,
+      abilityFactory: (_ctx, meta = {}) =>
+        new AttackAbilityWrapper(character, ProjectileAttackController, {
+          cooldown: 0,
+          projectileSpeed: config.projectileSpeed ?? 780,
+          damage: (config.baseDamage ?? 1) * (meta.power || 1),
+          projectileColor: config.projectileColor ?? 0xfff59d,
+        }),
+    });
+
+  const createChargeRanged = (config = {}) =>
+    new HoldRangedAction({
+      mode: "charge",
+      maxChargeMs: config.maxChargeMs ?? 1200,
+      minChargeMs: config.minChargeMs ?? 220,
+      abilityFactory: (_ctx, meta = {}) => {
+        const power = Phaser.Math.Clamp(meta.power || 0.5, 0.2, 1.2);
+        return new AttackAbilityWrapper(character, LinePierceAttackController, {
+          length: Phaser.Math.Linear(config.lengthMin ?? 360, config.lengthMax ?? 620, power),
+          width: config.width ?? 34,
+          damage: Phaser.Math.Linear(config.damageMin ?? 1, config.damageMax ?? 3.2, power),
+          indicatorColor: config.indicatorColor ?? 0x80cbc4,
+        });
+      },
+    });
+
+  const createAimRanged = (config = {}) =>
+    new HoldRangedAction({
+      mode: "aim",
+      abilityFactory: (ctx, meta = {}) =>
+        new AttackAbilityWrapper(character, HookShotAttackController, {
+          range: config.range ?? 520,
+          damage: config.damage ?? 2,
+          pullSpeed: config.pullSpeed ?? 12,
+          yankEnemy: true,
+          indicatorColor: config.indicatorColor ?? 0xc5cae9,
+          dir: meta.dir || ctx.direction,
+        }),
+    });
+
+  return [
+    {
+      key: "A",
+      name: "剣",
+      actions: {
         tap: new AttackAbilityWrapper(character, MultiHitAttackController, {
           hitCount: 3,
           interval: 90,
-          radius: 105,
+          radius: 110,
           damage: 1,
           indicatorColor: 0xfff59d,
         }),
         long: new AttackAbilityWrapper(character, RisingSlashAttackController, {
-          radius: 160,
+          radius: 170,
           damage: 2,
           indicatorColor: 0x90caf9,
         }),
         avoid: new DodgeAbilityWrapper(character, DashDodgeController, {
-          distance: 150,
+          distance: 160,
           duration: 260,
           invincibleDuration: 200,
         }),
-      },
-      ranged: {
-        tap: new AttackAbilityWrapper(character, ProjectileAttackController, {
-          cooldown: 220,
-          projectileSpeed: 760,
+        ranged: new AttackAbilityWrapper(character, ProjectileAttackController, {
+          cooldown: 0,
+          projectileSpeed: 820,
           damage: 1,
           projectileColor: 0xfff59d,
         }),
-        long: new AttackAbilityWrapper(character, LinePierceAttackController, {
-          length: 520,
-          width: 30,
-          damage: 2,
-          indicatorColor: 0xffd54f,
-        }),
-        avoid: new DodgeAbilityWrapper(character, DashDodgeController, {
-          distance: 180,
-          duration: 240,
-          invincibleDuration: 220,
+        rangedHold: createAutoRanged({
+          interval: 200,
+          maxShots: 5,
+          projectileSpeed: 840,
+          baseDamage: 1,
+          projectileColor: 0xfff59d,
         }),
       },
     },
-    B: {
-      name: "Hook",
-      melee: {
+    {
+      key: "B",
+      name: "フック",
+      actions: {
         tap: new AttackAbilityWrapper(character, HookSlamAttackController, {
           radius: 120,
           damage: 1,
           indicatorColor: 0xffab91,
         }),
         long: new AttackAbilityWrapper(character, HookShotAttackController, {
-          range: 240,
+          range: 260,
           damage: 1,
           pullSpeed: 10,
           indicatorColor: 0x9fa8da,
         }),
         avoid: new DodgeAbilityWrapper(character, ChainImpactDodgeController, {
-          distance: 160,
+          distance: 170,
           duration: 260,
           invincibleDuration: 220,
           chainRadius: 220,
           damagePerHit: 1,
         }),
-      },
-      ranged: {
-        tap: new AttackAbilityWrapper(character, HookShotAttackController, {
-          range: 340,
-          damage: 1,
-          pullSpeed: 11,
-          yankEnemy: true,
-          indicatorColor: 0xc5cae9,
-        }),
-        long: new AttackAbilityWrapper(character, HookShotAttackController, {
-          range: 420,
+        ranged: new AttackAbilityWrapper(character, HookShotAttackController, {
+          range: 460,
           damage: 2,
           pullSpeed: 12,
           yankEnemy: true,
           indicatorColor: 0xd1c4e9,
         }),
-        avoid: new DodgeAbilityWrapper(character, ChainImpactDodgeController, {
-          distance: 200,
-          duration: 300,
-          invincibleDuration: 240,
-          chainRadius: 240,
-          damagePerHit: 1,
+        rangedHold: createAimRanged({
+          range: 520,
+          damage: 2,
+          pullSpeed: 12,
+          indicatorColor: 0xd1c4e9,
         }),
       },
     },
-  };
+    {
+      key: "C",
+      name: "槍",
+      actions: {
+        tap: new AttackAbilityWrapper(character, LinePierceAttackController, {
+          length: 260,
+          width: 30,
+          damage: 1.6,
+          indicatorColor: 0xb2dfdb,
+        }),
+        long: new AttackAbilityWrapper(character, LinePierceAttackController, {
+          length: 360,
+          width: 38,
+          damage: 2.2,
+          indicatorColor: 0x80cbc4,
+        }),
+        avoid: new DodgeAbilityWrapper(character, AcceleratingDodgeController, {
+          distance: 210,
+          duration: 360,
+          invincibleDuration: 260,
+          impactRadius: 110,
+          impactDamage: 1,
+        }),
+        ranged: new AttackAbilityWrapper(character, LinePierceAttackController, {
+          length: 420,
+          width: 34,
+          damage: 2,
+          indicatorColor: 0x4dd0e1,
+        }),
+        rangedHold: createChargeRanged({
+          lengthMin: 420,
+          lengthMax: 640,
+          damageMin: 1.5,
+          damageMax: 3.2,
+          indicatorColor: 0x4dd0e1,
+        }),
+      },
+    },
+  ];
 }
 
 window.ComboManager = ComboManager;
-window.createDualEquipmentLoadouts = createDualEquipmentLoadouts;
+window.createWeaponEquipments = createWeaponEquipments;
+window.HoldRangedAction = HoldRangedAction;
