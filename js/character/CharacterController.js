@@ -53,6 +53,7 @@ class CharacterController {
       actionCurrentPos: null,
       actionStartTime: 0,
       lastActionKind: null,
+      twoFingerRanged: false,
     };
     this.rangedHoldPointerId = null;
     this.comboHoldContext = null;
@@ -322,6 +323,7 @@ class CharacterController {
       this.inputState.actionStartPos = { x: pointer.x, y: pointer.y };
       this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
       this.inputState.actionStartTime = now;
+      this.inputState.twoFingerRanged = true;
       this.startRangedHold(pointer);
       return;
     }
@@ -404,10 +406,12 @@ class CharacterController {
       this.inputState.actionPointerId !== null &&
       pointer.id === this.inputState.actionPointerId &&
       this.inputState.actionPointerId !== this.inputState.activePointerId;
+    const forceRanged = this.inputState.twoFingerRanged || isSecondaryAction;
     const actionContext = {
       pointer: worldPoint,
       direction: { x: dx, y: dy },
-      forceRanged: isSecondaryAction,
+      forceRanged,
+      twoFingerRanged: this.inputState.twoFingerRanged,
     };
 
     // 入力判定の優先順位
@@ -836,6 +840,7 @@ class CharacterController {
     this.inputState.actionStartPos = null;
     this.inputState.actionCurrentPos = null;
     this.inputState.actionStartTime = 0;
+    this.inputState.twoFingerRanged = false;
   }
 
   clearActivePointer() {
@@ -843,6 +848,7 @@ class CharacterController {
     this.inputState.touchStartPos = null;
     this.inputState.touchCurrentPos = null;
     this.inputState.touchStartTime = 0;
+    this.inputState.twoFingerRanged = false;
   }
 }
 

@@ -111,22 +111,6 @@ class ComboManager {
     this.indices[kindKey] = (this.indices[kindKey] + 1) % Math.max(1, this.equipments.length);
   }
 
-  _shouldUseRanged(context = {}) {
-    if (context.forceRanged) return true;
-    const scene = this.character.scene;
-    const combat = scene?.combatSystem;
-    if (!combat || !combat.getNearestEnemySprite || !this.character.sprite) return false;
-    const target = combat.getNearestEnemySprite(this.character.sprite);
-    if (!target) return false;
-    const dist = Phaser.Math.Distance.Between(
-      this.character.sprite.x,
-      this.character.sprite.y,
-      target.x,
-      target.y
-    );
-    return dist >= this.rangeThreshold;
-  }
-
   handleAction(kind, context = {}) {
     const now = this.character.scene.time.now;
     this._maybeReset(now);
@@ -134,7 +118,8 @@ class ComboManager {
     const { equipment } = this._getEquipment(kindKey) || {};
     if (!equipment) return false;
 
-    const useRanged = this._shouldUseRanged(context);
+    // 回避は常に近接の回避アクションを使用し、遠距離判定はしない
+    const useRanged = kindKey === "avoid" ? false : Boolean(context.forceRanged || context.twoFingerRanged);
     const actions = equipment.actions || {};
     const ability =
       useRanged && actions.ranged
