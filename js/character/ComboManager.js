@@ -87,7 +87,7 @@ class ComboManager {
     this.equipments = options.equipments || [];
     this.resetMs = options.resetMs ?? 1200;
     this.rangeThreshold = options.rangeThreshold ?? 260;
-    this.indices = { tap: 0, long: 0 };
+    this.indices = { tap: 0, long: 0, avoid: 0, ranged: 0 };
     this.lastActionAt = 0;
     this.statusTimer = null;
     this.activeHold = null;
@@ -95,12 +95,12 @@ class ComboManager {
 
   _maybeReset(now) {
     if (now - this.lastActionAt > this.resetMs) {
-      this.indices = { tap: 0, long: 0 };
+      this.indices = { tap: 0, long: 0, avoid: 0, ranged: 0 };
     }
   }
 
   _getEquipment(kindKey = "tap") {
-    const key = kindKey === "avoid" ? "tap" : kindKey;
+    const key = kindKey || "tap";
     const list = this.equipments;
     if (!list || list.length === 0) return null;
     const idx = this.indices[key] % list.length;
@@ -108,7 +108,7 @@ class ComboManager {
   }
 
   _advance(kindKey = "tap") {
-    const key = kindKey === "avoid" ? "tap" : kindKey;
+    const key = kindKey || "tap";
     if (this.indices[key] == null) this.indices[key] = 0;
     this.indices[key] = (this.indices[key] + 1) % Math.max(1, this.equipments.length);
   }
@@ -117,11 +117,13 @@ class ComboManager {
     const now = this.character.scene.time.now;
     this._maybeReset(now);
     const kindKey = kind === "avoid" ? "avoid" : kind === "long" ? "long" : "tap";
-    const { equipment } = this._getEquipment(kindKey) || {};
+    const isForcedRanged = kindKey !== "avoid" && Boolean(context.forceRanged || context.twoFingerRanged);
+    const slotKey = isForcedRanged ? "ranged" : kindKey;
+    const { equipment } = this._getEquipment(slotKey) || {};
     if (!equipment) return false;
 
     // 回避は常に近接の回避アクションを使用し、遠距離判定はしない
-    const useRanged = kindKey === "avoid" ? false : Boolean(context.forceRanged || context.twoFingerRanged);
+    const useRanged = kindKey === "avoid" ? false : isForcedRanged;
     const actions = equipment.actions || {};
     const ability =
       useRanged && actions.ranged
@@ -132,9 +134,10 @@ class ComboManager {
 
     const executed = this._runAbility(ability, context);
     if (executed) {
-      this._advance(kindKey);
+      this._advance(slotKey);
       this.lastActionAt = now;
-      this._flashStatus(`${equipment.name || equipment.key || "Equip"}:${useRanged ? "遠" : "近"}`);
+      const label = this._buildLabel(equipment, useRanged ? "遠" : kindKey === "long" ? "長" : kindKey === "avoid" ? "避" : "短");
+      this._flashStatus(label);
     }
     return executed;
   }
@@ -142,16 +145,17 @@ class ComboManager {
   startHold(context = {}) {
     const now = this.character.scene.time.now;
     this._maybeReset(now);
-    const { equipment, index } = this._getEquipment("tap") || {};
+    const { equipment, index } = this._getEquipment("ranged") || {};
     if (!equipment || !equipment.actions?.rangedHold) return false;
     const holdAction = equipment.actions.rangedHold;
     holdAction.setOwnerSprite(this.character.sprite);
     const started = holdAction.start(context, (ability, ctx) => this._runAbility(ability, ctx));
     if (started) {
       this.activeHold = { holdAction, pointerId: context.pointerId, equipmentIndex: index, equipment };
-      this._advance("tap");
+      this._advance("ranged");
       this.lastActionAt = now;
-      this._flashStatus(`${equipment.name || equipment.key || "Equip"}:遠Hold`);
+      const label = this._buildLabel(equipment, "遠");
+      this._flashStatus(label);
     }
     return started;
   }
@@ -197,6 +201,11 @@ class ComboManager {
     this.statusTimer = this.character.scene.time.delayedCall(600, () => {
       this.character.updateStatusLabel("");
     });
+  }
+
+  _buildLabel(equipment, actionSymbol) {
+    const name = equipment?.name || equipment?.key || "Equip";
+    return `${name}${actionSymbol}`;
   }
 }
 
