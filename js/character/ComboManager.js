@@ -87,7 +87,7 @@ class ComboManager {
     this.equipments = options.equipments || [];
     this.resetMs = options.resetMs ?? 1200;
     this.rangeThreshold = options.rangeThreshold ?? 260;
-    this.indices = { tap: 0, long: 0, avoid: 0 };
+    this.indices = { tap: 0, long: 0 };
     this.lastActionAt = 0;
     this.statusTimer = null;
     this.activeHold = null;
@@ -95,20 +95,22 @@ class ComboManager {
 
   _maybeReset(now) {
     if (now - this.lastActionAt > this.resetMs) {
-      this.indices = { tap: 0, long: 0, avoid: 0 };
+      this.indices = { tap: 0, long: 0 };
     }
   }
 
   _getEquipment(kindKey = "tap") {
+    const key = kindKey === "avoid" ? "tap" : kindKey;
     const list = this.equipments;
     if (!list || list.length === 0) return null;
-    const idx = this.indices[kindKey] % list.length;
+    const idx = this.indices[key] % list.length;
     return { equipment: list[idx], index: idx };
   }
 
   _advance(kindKey = "tap") {
-    if (this.indices[kindKey] == null) this.indices[kindKey] = 0;
-    this.indices[kindKey] = (this.indices[kindKey] + 1) % Math.max(1, this.equipments.length);
+    const key = kindKey === "avoid" ? "tap" : kindKey;
+    if (this.indices[key] == null) this.indices[key] = 0;
+    this.indices[key] = (this.indices[key] + 1) % Math.max(1, this.equipments.length);
   }
 
   handleAction(kind, context = {}) {
