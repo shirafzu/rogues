@@ -1,3 +1,30 @@
+// 共通: 入力方向 → 速度方向 → 向き の順で方向を取得
+function getDirectionFromInput(character) {
+  const input = character?.inputState;
+  if (!input || input.activePointerId === null || !input.touchCurrentPos || !input.touchStartPos) return null;
+  const dx = input.touchCurrentPos.x - input.touchStartPos.x;
+  const dy = input.touchCurrentPos.y - input.touchStartPos.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return null;
+  return { x: dx / len, y: dy / len };
+}
+
+function getDirectionFromVelocity(character) {
+  const body = character?.sprite?.body;
+  if (!body || !body.velocity) return null;
+  const vx = body.velocity.x || 0;
+  const vy = body.velocity.y || 0;
+  const len = Math.hypot(vx, vy);
+  if (len < 0.1) return null;
+  return { x: vx / len, y: vy / len };
+}
+
+function getFacingDirection(character) {
+  const sprite = character?.sprite;
+  if (!sprite || typeof sprite.rotation !== "number") return null;
+  return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
+}
+
 class AttackController {
   constructor(character, config = {}) {
     this.character = character;
@@ -180,11 +207,10 @@ class ProjectileAttackController extends AttackController {
     return true;
   }
 
-  _resolveAim(pointerOrContext, combat) {
+  _resolveAim(_context, combat) {
     const sprite = this.character.sprite;
-    const context = pointerOrContext || {};
-    const dirFromInput = this._getMoveDirectionFromInput() || this._getDirectionFromVelocity();
-    const dirFromFacing = this._getFacingDirection();
+    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
+    const dirFromFacing = getFacingDirection(this.character);
 
     // 1) 有効射程内で最も近い敵
     const targetSprite = combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range });
@@ -208,37 +234,6 @@ class ProjectileAttackController extends AttackController {
       aimX: sprite.x + finalDir.x * this.config.range,
       aimY: sprite.y + finalDir.y * this.config.range,
     };
-  }
-
-  _getMoveDirectionFromInput() {
-    const input = this.character?.inputState;
-    if (!input) return null;
-    const hasInput =
-      input.activePointerId !== null &&
-      input.touchCurrentPos &&
-      input.touchStartPos;
-    if (!hasInput) return null;
-    const dx = input.touchCurrentPos.x - input.touchStartPos.x;
-    const dy = input.touchCurrentPos.y - input.touchStartPos.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) return null;
-    return { x: dx / len, y: dy / len };
-  }
-
-  _getDirectionFromVelocity() {
-    const body = this.character?.sprite?.body;
-    if (!body || !body.velocity) return null;
-    const vx = body.velocity.x || 0;
-    const vy = body.velocity.y || 0;
-    const len = Math.hypot(vx, vy);
-    if (len < 0.1) return null;
-    return { x: vx / len, y: vy / len };
-  }
-
-  _getFacingDirection() {
-    const sprite = this.character?.sprite;
-    if (!sprite || typeof sprite.rotation !== "number") return null;
-    return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
   }
 
   _applyDamage(target, aimX, aimY, combat) {
@@ -426,7 +421,7 @@ class LinePierceAttackController extends AttackController {
 
     this.recordAttackTime();
 
-    const { startX, startY, dir } = this._resolveDirection(pointer);
+    const { startX, startY, dir } = this._resolveDirection();
     const endX = startX + dir.x * this.config.length;
     const endY = startY + dir.y * this.config.length;
     const scene = this.character.scene;
@@ -445,25 +440,24 @@ class LinePierceAttackController extends AttackController {
     return true;
   }
 
-  _resolveDirection(pointer) {
+  _resolveDirection() {
     const sprite = this.character.sprite;
-    let dx = 1;
-    let dy = 0;
-    if (pointer && typeof pointer.x === "number" && typeof pointer.y === "number") {
-      dx = pointer.x - sprite.x;
-      dy = pointer.y - sprite.y;
-    } else {
-      const combat = this.character.scene?.combatSystem;
-      const target = combat?.getNearestEnemySprite
-        ? combat.getNearestEnemySprite(sprite)
-        : null;
-      if (target) {
-        dx = target.x - sprite.x;
-        dy = target.y - sprite.y;
-      }
+    const combat = this.character.scene?.combatSystem;
+    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
+    const dirFromFacing = getFacingDirection(this.character);
+    const target = combat?.getNearestEnemySprite
+      ? combat.getNearestEnemySprite(sprite, { maxDistance: this.config.length })
+      : null;
+
+    if (target) {
+      const dx = target.x - sprite.x;
+      const dy = target.y - sprite.y;
+      const len = Math.hypot(dx, dy) || 1;
+      return { startX: sprite.x, startY: sprite.y, dir: { x: dx / len, y: dy / len } };
     }
-    const len = Math.hypot(dx, dy) || 1;
-    return { startX: sprite.x, startY: sprite.y, dir: { x: dx / len, y: dy / len } };
+
+    const dir = dirFromInput || dirFromFacing || { x: 1, y: 0 };
+    return { startX: sprite.x, startY: sprite.y, dir };
   }
 
   _damageAlongLine(x1, y1, x2, y2) {
@@ -572,11 +566,7 @@ class HookShotAttackController extends AttackController {
     if (!sprite || !sprite.active) return false;
 
     const combat = this.character.scene?.combatSystem;
-    const target = combat?.getNearestEnemySprite
-      ? combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range })
-      : null;
-
-    const anchor = this._resolveAnchor(pointer, target);
+    const { anchor, target } = this._resolveAnchor(combat);
     if (!anchor) return false;
 
     this.recordAttackTime();
@@ -585,23 +575,24 @@ class HookShotAttackController extends AttackController {
     return true;
   }
 
-  _resolveAnchor(pointer, target) {
+  _resolveAnchor(combat) {
     const sprite = this.character.sprite;
-    if (target) {
-      return { x: target.x, y: target.y };
+    const dirFromInput = getDirectionFromInput(this.character) || getDirectionFromVelocity(this.character);
+    const dirFromFacing = getFacingDirection(this.character);
+    const targetSprite = combat?.getNearestEnemySprite
+      ? combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range })
+      : null;
+
+    if (targetSprite) {
+      return { anchor: { x: targetSprite.x, y: targetSprite.y }, target: targetSprite };
     }
 
-    if (pointer && typeof pointer.x === "number" && typeof pointer.y === "number") {
-      const dx = pointer.x - sprite.x;
-      const dy = pointer.y - sprite.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const clamped = Math.min(dist, this.config.range);
-      return {
-        x: sprite.x + (dx / dist) * clamped,
-        y: sprite.y + (dy / dist) * clamped,
-      };
-    }
-    return null;
+    const dir = dirFromInput || dirFromFacing || { x: 1, y: 0 };
+    const anchor = {
+      x: sprite.x + dir.x * this.config.range,
+      y: sprite.y + dir.y * this.config.range,
+    };
+    return { anchor, target: null };
   }
 
   _drawRope(sx, sy, ex, ey) {
