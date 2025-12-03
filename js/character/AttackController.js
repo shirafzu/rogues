@@ -137,11 +137,12 @@ class ProjectileAttackController extends AttackController {
       projectileSpeed: 500,
       damage: 1,
       projectileColor: 0x81d4fa,
+      range: 640,
       ...config,
     });
   }
 
-  requestAttack() {
+  requestAttack(pointerOrContext) {
     if (!this.canAttack()) return false;
 
     // spriteが破壊されている場合は攻撃できない
@@ -149,8 +150,8 @@ class ProjectileAttackController extends AttackController {
 
     const combat = this.character.scene.combatSystem;
     if (!combat) return false;
-    const target = combat.getNearestEnemySprite(this.character.sprite);
-    if (!target) return false;
+    const { target, aimX, aimY } = this._resolveAim(pointerOrContext, combat);
+    if (!aimX || !aimY) return false;
 
     this.recordAttackTime();
     const startX = this.character.sprite.x;
@@ -163,23 +164,99 @@ class ProjectileAttackController extends AttackController {
       0.9
     );
 
-    const distance = Math.hypot(target.x - startX, target.y - startY) || 1;
+    const distance = Math.hypot(aimX - startX, aimY - startY) || 1;
     const duration = (distance / this.config.projectileSpeed) * 1000;
 
     this.character.scene.tweens.add({
       targets: projectile,
-      x: target.x,
-      y: target.y,
+      x: aimX,
+      y: aimY,
       duration,
       onComplete: () => {
         projectile.destroy();
-        if (target && target.active) {
-          combat.damageEnemySprite(target, this.config.damage);
-          combat.igniteEntity(target);
-        }
+        this._applyDamage(target, aimX, aimY, combat);
       },
     });
     return true;
+  }
+
+  _resolveAim(pointerOrContext, combat) {
+    const sprite = this.character.sprite;
+    const context = pointerOrContext || {};
+    const dirFromInput = this._getMoveDirectionFromInput() || this._getDirectionFromVelocity();
+    const dirFromFacing = this._getFacingDirection();
+
+    // 1) 有効射程内で最も近い敵
+    const targetSprite = combat.getNearestEnemySprite(sprite, { maxDistance: this.config.range });
+    if (targetSprite) {
+      return { target: targetSprite, aimX: targetSprite.x, aimY: targetSprite.y };
+    }
+
+    // 2) スティック入力の方向（移動方向）
+    if (dirFromInput) {
+      return {
+        target: null,
+        aimX: sprite.x + dirFromInput.x * this.config.range,
+        aimY: sprite.y + dirFromInput.y * this.config.range,
+      };
+    }
+
+    // 3) キャラクターの向いている方向
+    const finalDir = dirFromFacing || { x: 1, y: 0 };
+    return {
+      target: null,
+      aimX: sprite.x + finalDir.x * this.config.range,
+      aimY: sprite.y + finalDir.y * this.config.range,
+    };
+  }
+
+  _getMoveDirectionFromInput() {
+    const input = this.character?.inputState;
+    if (!input) return null;
+    const hasInput =
+      input.activePointerId !== null &&
+      input.touchCurrentPos &&
+      input.touchStartPos;
+    if (!hasInput) return null;
+    const dx = input.touchCurrentPos.x - input.touchStartPos.x;
+    const dy = input.touchCurrentPos.y - input.touchStartPos.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null;
+    return { x: dx / len, y: dy / len };
+  }
+
+  _getDirectionFromVelocity() {
+    const body = this.character?.sprite?.body;
+    if (!body || !body.velocity) return null;
+    const vx = body.velocity.x || 0;
+    const vy = body.velocity.y || 0;
+    const len = Math.hypot(vx, vy);
+    if (len < 0.1) return null;
+    return { x: vx / len, y: vy / len };
+  }
+
+  _getFacingDirection() {
+    const sprite = this.character?.sprite;
+    if (!sprite || typeof sprite.rotation !== "number") return null;
+    return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
+  }
+
+  _applyDamage(target, aimX, aimY, combat) {
+    if (target && target.active) {
+      combat.damageEnemySprite(target, this.config.damage);
+      combat.igniteEntity(target);
+      return;
+    }
+    // ターゲット不在時は小さな接触判定
+    const radius = 30;
+    const enemies = combat.getEnemies().map((e) => e && e.sprite).filter((s) => s && s.active);
+    enemies.forEach((enemy) => {
+      const dist = Phaser.Math.Distance.Between(aimX, aimY, enemy.x, enemy.y);
+      if (dist <= radius) {
+        combat.damageEnemySprite(enemy, this.config.damage);
+        combat.igniteEntity(enemy);
+      }
+    });
   }
 }
 
