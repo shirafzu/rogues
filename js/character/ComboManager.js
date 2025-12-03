@@ -91,6 +91,7 @@ class ComboManager {
     this.lastActionAt = 0;
     this.statusTimer = null;
     this.activeHold = null;
+    this._validateEquipments();
   }
 
   _maybeReset(now) {
@@ -206,6 +207,16 @@ class ComboManager {
   _buildLabel(equipment, actionSymbol) {
     const name = equipment?.name || equipment?.key || "Equip";
     return `${name}${actionSymbol}`;
+  }
+
+  _validateEquipments() {
+    const required = ["tap", "long", "avoid", "ranged", "rangedHold"];
+    this.equipments.forEach((eq, idx) => {
+      const missing = required.filter((k) => !eq?.actions?.[k]);
+      if (missing.length > 0) {
+        console.warn(`ComboManager: equipment index ${idx} (${eq?.name || eq?.key || "unknown"}) missing actions: ${missing.join(", ")}`);
+      }
+    });
   }
 }
 
