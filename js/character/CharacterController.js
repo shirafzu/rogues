@@ -54,6 +54,8 @@ class CharacterController {
       actionStartTime: 0,
       lastActionKind: null,
     };
+    this.rangedHoldPointerId = null;
+    this.comboHoldContext = null;
 
     // 長距離移動の発動距離閾値
     this.longDistanceTriggerDistance = options.longDistanceTriggerDistance ?? 250;
@@ -160,6 +162,67 @@ class CharacterController {
     this.comboManager = manager;
   }
 
+  getWorldPointFromScreen(x, y) {
+    const cam = this.scene?.cameras?.main;
+    if (!cam || typeof cam.getWorldPoint !== "function") {
+      return { x, y };
+    }
+    return cam.getWorldPoint(x, y);
+  }
+
+  startRangedHold(pointer) {
+    if (!this.comboManager || !this.sprite) return false;
+    const worldPoint = this.getWorldPointFromScreen(pointer.x, pointer.y);
+    const dir = {
+      x: worldPoint.x - this.sprite.x,
+      y: worldPoint.y - this.sprite.y,
+    };
+    const started = this.comboManager.startHold({
+      pointer: worldPoint,
+      direction: dir,
+      pointerId: pointer.id,
+      forceRanged: true,
+    });
+    if (started) {
+      this.rangedHoldPointerId = pointer.id;
+      this.comboHoldContext = { pointer: worldPoint, direction: dir };
+    }
+    return started;
+  }
+
+  releaseRangedHold(pointer) {
+    if (!this.comboManager) return false;
+    const released = this.comboManager.releaseHold({
+      pointerId: pointer?.id,
+      pointer: this.comboHoldContext?.pointer,
+      direction: this.comboHoldContext?.direction,
+      forceRanged: true,
+    });
+    this.rangedHoldPointerId = null;
+    this.comboHoldContext = null;
+    return released;
+  }
+
+  updateRangedHold(delta) {
+    if (!this.comboManager || !this.rangedHoldPointerId) return;
+    if (!this.inputState.actionCurrentPos) return;
+    const worldPoint = this.getWorldPointFromScreen(
+      this.inputState.actionCurrentPos.x,
+      this.inputState.actionCurrentPos.y
+    );
+    const dir = {
+      x: worldPoint.x - this.sprite.x,
+      y: worldPoint.y - this.sprite.y,
+    };
+    this.comboHoldContext = { pointer: worldPoint, direction: dir };
+    this.comboManager.updateHold(delta, {
+      pointerId: this.rangedHoldPointerId,
+      pointer: worldPoint,
+      direction: dir,
+      forceRanged: true,
+    });
+  }
+
   /**
    * Abilityインスタンスを実行し、必要ならアクティブ管理に登録
    */
@@ -254,12 +317,12 @@ class CharacterController {
       return;
     }
 
-    // セカンダリ（攻撃/回避）ポインタとして使用
-    if (this.inputState.actionPointerId === null) {
+    if (pointer.id !== this.inputState.activePointerId) {
       this.inputState.actionPointerId = pointer.id;
       this.inputState.actionStartPos = { x: pointer.x, y: pointer.y };
       this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
       this.inputState.actionStartTime = now;
+      this.startRangedHold(pointer);
       return;
     }
   }
@@ -285,15 +348,22 @@ class CharacterController {
     const hasSecondaryAction =
       this.inputState.actionPointerId !== null &&
       this.inputState.actionPointerId !== this.inputState.activePointerId;
+
+    // 遠距離ホールド中の指が離れた場合は解放して終了
+    if (pointer.id === this.rangedHoldPointerId) {
+      this.releaseRangedHold(pointer);
+      if (pointer.id === this.inputState.actionPointerId) {
+        this.clearActionPointer();
+      }
+      return;
+    }
+
     // すでに別指がアクション担当の場合、移動指の離脱では攻撃しない
     if (pointer.id === this.inputState.activePointerId && hasSecondaryAction) {
       if (!this.isAbilityBlockingMovement()) {
         this.sprite.setVelocity(0, 0);
       }
-      this.inputState.activePointerId = null;
-      this.inputState.touchStartPos = null;
-      this.inputState.touchCurrentPos = null;
-      this.inputState.touchStartTime = 0;
+      this.clearActivePointer();
       return;
     }
 
@@ -322,14 +392,8 @@ class CharacterController {
         longDistanceAbility.stop();
       }
       // 長距離移動モード中は指を離しても移動継続
-      this.inputState.activePointerId = null;
-      this.inputState.touchStartPos = null;
-      this.inputState.touchCurrentPos = null;
-      this.inputState.touchStartTime = 0;
-      this.inputState.actionPointerId = null;
-      this.inputState.actionStartPos = null;
-      this.inputState.actionCurrentPos = null;
-      this.inputState.actionStartTime = 0;
+      this.clearActivePointer();
+      this.clearActionPointer();
       return;
     }
 
@@ -395,17 +459,11 @@ class CharacterController {
     }
 
     if (pointer.id === this.inputState.actionPointerId) {
-      this.inputState.actionPointerId = null;
-      this.inputState.actionStartPos = null;
-      this.inputState.actionCurrentPos = null;
-      this.inputState.actionStartTime = 0;
+      this.clearActionPointer();
     }
 
     if (pointer.id === this.inputState.activePointerId) {
-      this.inputState.activePointerId = null;
-      this.inputState.touchStartPos = null;
-      this.inputState.touchCurrentPos = null;
-      this.inputState.touchStartTime = 0;
+      this.clearActivePointer();
     }
   }
 
@@ -421,7 +479,7 @@ class CharacterController {
 
   handleComboInput(kind, context = {}) {
     if (this.comboManager) {
-      const executed = this.comboManager.handleInput(kind, context);
+      const executed = this.comboManager.handleAction(kind, context);
       if (executed) {
         this.inputState.lastActionKind = kind;
         return true;
@@ -472,6 +530,7 @@ class CharacterController {
     }
 
     this.updateActiveAbilities(delta);
+    this.updateRangedHold(delta);
     if (this.comboManager) {
       this.comboManager.update(delta);
     }
@@ -770,6 +829,20 @@ class CharacterController {
     this.aiController = null;
     this.movementController = null;
     this.abilityMap = null;
+  }
+
+  clearActionPointer() {
+    this.inputState.actionPointerId = null;
+    this.inputState.actionStartPos = null;
+    this.inputState.actionCurrentPos = null;
+    this.inputState.actionStartTime = 0;
+  }
+
+  clearActivePointer() {
+    this.inputState.activePointerId = null;
+    this.inputState.touchStartPos = null;
+    this.inputState.touchCurrentPos = null;
+    this.inputState.touchStartTime = 0;
   }
 }
 
