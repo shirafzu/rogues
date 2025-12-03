@@ -43,10 +43,36 @@
   <script src="js/effects/ProjectileEffect.js"></script>
 
   <!-- Character Controllers -->
-  <script src="js/character/MovementController.js"></script>
-  <script src="js/character/DodgeController.js"></script>
-  <script src="js/character/AttackController.js"></script>
-  <script src="js/character/LongDistanceController.js"></script>
+  <!-- Movement Controllers -->
+  <script src="js/actions/movement/MovementController.js"></script>
+  <script src="js/actions/movement/BasicMovementController.js"></script>
+  <script src="js/actions/movement/AcceleratingMovementController.js"></script>
+  <script src="js/actions/movement/HoppingMovementController.js"></script>
+  <script src="js/actions/movement/SeekMovementController.js"></script>
+
+  <!-- Dodge Controllers -->
+  <script src="js/actions/dodge/DodgeController.js"></script>
+  <script src="js/actions/dodge/DashDodgeController.js"></script>
+  <script src="js/actions/dodge/AcceleratingDodgeController.js"></script>
+  <script src="js/actions/dodge/ChainImpactDodgeController.js"></script>
+  <script src="js/actions/dodge/HookGrappleDodgeController.js"></script>
+  <script src="js/actions/dodge/BlinkDodgeController.js"></script>
+
+  <!-- Attack Controllers -->
+  <script src="js/actions/attack/AttackController.js"></script>
+  <script src="js/actions/attack/MeleeAoEAttackController.js"></script>
+  <script src="js/actions/attack/AlternatingSlashAttackController.js"></script>
+  <script src="js/actions/attack/ProjectileAttackController.js"></script>
+  <script src="js/actions/attack/MultiHitAttackController.js"></script>
+  <script src="js/actions/attack/RisingSlashAttackController.js"></script>
+  <script src="js/actions/attack/LinePierceAttackController.js"></script>
+  <script src="js/actions/attack/HookSlamAttackController.js"></script>
+  <script src="js/actions/attack/HookShotAttackController.js"></script>
+
+  <!-- Long Distance Controllers -->
+  <script src="js/actions/longdistance/LongDistanceController.js"></script>
+  <script src="js/actions/longdistance/SteadyLongDistanceController.js"></script>
+  <script src="js/actions/longdistance/AcceleratingLongDistanceController.js"></script>
   <script src="js/character/AIController.js"></script>
   <script src="js/abilities/BaseAbility.js"></script>
   <script src="js/abilities/AbilityWrappers.js"></script>
@@ -57,7 +83,11 @@
   <script src="js/systems/EnemyDefinitions.js"></script>
   <script src="js/systems/ScentManager.js"></script>
   <script src="js/systems/SurvivalSystem.js"></script>
-  <script src="js/character/ItemActionController.js"></script>
+  <!-- Item Action Controllers -->
+  <script src="js/actions/item/ItemActionController.js"></script>
+  <script src="js/actions/item/HealingItemController.js"></script>
+  <script src="js/actions/item/PlaceableItemController.js"></script>
+  <script src="js/actions/item/ThrowingItemController.js"></script>
   <script src="js/systems/EntityManager.js"></script>
   <script src="js/systems/InventorySystem.js"></script>
   <script src="js/systems/ItemActionFactory.js"></script>
