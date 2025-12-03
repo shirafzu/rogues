@@ -238,22 +238,15 @@ class CharacterController {
 
   /**
    * クイックスロットにアイテムをセット
+   * リファクタリング: ItemActionFactoryを使用してデータ駆動型に変更
    */
   setQuickSlotItem(itemId) {
-    let controller = null;
-
-    if (itemId === "health_salve") {
-      controller = HealingItemController;
-    } else if (itemId === "campfire_kit") {
-      controller = PlaceableItemController;
-    } else if (itemId === "throwing_stone") {
-      controller = ThrowingItemController;
-    } else if (itemId === "spike_trap") {
-      controller = PlaceableItemController;
-    }
+    // ItemActionFactoryでコントローラーを生成
+    const controller = ItemActionFactory.createController(this, itemId);
 
     if (controller) {
-      this.abilityMap["item"] = new ItemAbilityWrapper(this, controller, { itemId });
+      // コントローラーをItemAbilityWrapperでラップ
+      this.abilityMap["item"] = new ItemAbilityWrapper(this, controller.constructor, controller.config);
       console.log(`Set quick slot: ${itemId}`);
 
       // UI更新通知

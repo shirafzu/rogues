@@ -36,6 +36,14 @@ const RESOURCE_DEFINITIONS = {
     description: "Create a temporary safe zone with regen aura.",
     maxStack: 5,
     weight: 2,
+    // リファクタリング: アクション設定を追加
+    actionConfig: {
+      controllerType: "placeable",
+      cooldown: 2000,
+      entityType: "campfire",
+      maxRange: 150,
+      offsetY: 40,
+    }
   },
   health_salve: {
     id: "health_salve",
@@ -43,6 +51,12 @@ const RESOURCE_DEFINITIONS = {
     description: "Single-use heal that restores moderate HP.",
     maxStack: 5,
     weight: 0.5,
+    // リファクタリング: アクション設定を追加
+    actionConfig: {
+      controllerType: "healing",
+      cooldown: 1000,
+      healAmount: 2,
+    }
   },
   arrow_bundle: {
     id: "arrow_bundle",
@@ -71,6 +85,14 @@ const RESOURCE_DEFINITIONS = {
     description: "Simple ranged weapon.",
     maxStack: 10,
     weight: 0.5,
+    // リファクタリング: アクション設定を追加
+    actionConfig: {
+      controllerType: "throwing",
+      cooldown: 500,
+      projectileSpeed: 10,
+      damage: 1,
+      range: 300,
+    }
   },
   spike_trap: {
     id: "spike_trap",
@@ -78,6 +100,14 @@ const RESOURCE_DEFINITIONS = {
     description: "Placeable trap that damages enemies.",
     maxStack: 5,
     weight: 2,
+    // リファクタリング: アクション設定を追加
+    actionConfig: {
+      controllerType: "placeable",
+      cooldown: 2000,
+      entityType: "trap",
+      maxRange: 150,
+      offsetY: 40,
+    }
   },
 };
 
