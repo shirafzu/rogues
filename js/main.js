@@ -649,6 +649,9 @@ window.addEventListener("load", () => {
       width: 720, // 縦持ち前提の仮想解像度
       height: 1280,
     },
+    input: {
+      activePointers: 3, // マルチタッチ対応: 2本指 + マウス用
+    },
     physics: {
       default: "matter",
       matter: {
