@@ -958,6 +958,12 @@ class UIManager {
     this.inputVisuals.longDistanceThreshold.setDepth(1000);
     this.inputVisuals.longDistanceThreshold.setScrollFactor(0);
     this.inputVisuals.longDistanceThreshold.setVisible(false);
+
+    // 2本指遠距離インジケーター
+    this.inputVisuals.rangedHoldIndicator = this.scene.add.graphics();
+    this.inputVisuals.rangedHoldIndicator.setDepth(1002);
+    this.inputVisuals.rangedHoldIndicator.setScrollFactor(0);
+    this.inputVisuals.rangedHoldIndicator.setVisible(false);
   }
 
   /**
@@ -1184,6 +1190,37 @@ class UIManager {
     } else {
       this.hideVirtualJoystick();
       this.hideLongDistanceThreshold();
+    }
+
+    // 2本指遠距離インジケーター
+    if (inputState.twoFingerRanged && inputState.actionStartPos && inputState.actionCurrentPos) {
+      this.showRangedHoldIndicator(
+        inputState.actionStartPos.x,
+        inputState.actionStartPos.y,
+        inputState.actionCurrentPos.x,
+        inputState.actionCurrentPos.y
+      );
+    } else {
+      this.hideRangedHoldIndicator();
+    }
+  }
+
+  showRangedHoldIndicator(startX, startY, currentX, currentY) {
+    if (!this.inputVisuals.rangedHoldIndicator) return;
+    const gfx = this.inputVisuals.rangedHoldIndicator;
+    gfx.clear();
+    gfx.lineStyle(4, 0x4dd0e1, 0.8);
+    gfx.strokeCircle(startX, startY, 26);
+    gfx.lineBetween(startX, startY, currentX, currentY);
+    gfx.fillStyle(0x4dd0e1, 0.6);
+    gfx.fillCircle(currentX, currentY, 10);
+    gfx.setVisible(true);
+  }
+
+  hideRangedHoldIndicator() {
+    if (this.inputVisuals.rangedHoldIndicator) {
+      this.inputVisuals.rangedHoldIndicator.clear();
+      this.inputVisuals.rangedHoldIndicator.setVisible(false);
     }
   }
 
