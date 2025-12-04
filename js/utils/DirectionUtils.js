@@ -36,8 +36,14 @@ class DirectionUtils {
    */
   static getFacingDirection(character) {
     const sprite = character?.sprite;
-    if (!sprite || typeof sprite.rotation !== "number") return null;
-    return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
+    if (sprite && typeof sprite.rotation === "number") {
+      return { x: Math.cos(sprite.rotation), y: Math.sin(sprite.rotation) };
+    }
+    const facing = character?.facingDirection;
+    if (!facing) return null;
+    const len = Math.hypot(facing.x ?? 0, facing.y ?? 0);
+    if (len < 0.0001) return null;
+    return { x: (facing.x ?? 0) / len, y: (facing.y ?? 0) / len };
   }
 
   /**

@@ -13,6 +13,7 @@ class CharacterController {
     this.race = options.race || "human";
     this.baseColor = options.baseColor ?? 0x4caf50;
     this.sprite = this.createSprite(spawnX, spawnY);
+    this.facingDirection = { x: 1, y: 0 };
 
     const defaultCallbacks = {
       onAttackArea: null,
@@ -150,6 +151,30 @@ class CharacterController {
     input.off("pointerup", this.boundHandlers.pointerup);
     input.off("pointerupoutside", this.boundHandlers.pointerup);
     this.inputHandlersAttached = false;
+  }
+
+  setFacingDirection(direction) {
+    if (!direction) return;
+    const dx = direction.x ?? 0;
+    const dy = direction.y ?? 0;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.0001) return;
+    const nx = dx / len;
+    const ny = dy / len;
+    this.facingDirection = { x: nx, y: ny };
+    if (this.sprite?.setRotation) {
+      this.sprite.setRotation(Math.atan2(ny, nx));
+    }
+  }
+
+  updateFacingFromVelocity(threshold = 0.1) {
+    const velocity = this.sprite?.body?.velocity;
+    if (!velocity) return;
+    const vx = velocity.x || 0;
+    const vy = velocity.y || 0;
+    const speedSq = vx * vx + vy * vy;
+    if (speedSq < threshold * threshold) return;
+    this.setFacingDirection({ x: vx, y: vy });
   }
 
   setAbilityMap(map = {}) {
@@ -560,6 +585,7 @@ class CharacterController {
     }
 
     this.applyMovementSpeedModifier();
+    this.updateFacingFromVelocity();
 
     // ステータスラベルの位置更新
     if (this.statusLabel && this.statusLabel.visible) {
