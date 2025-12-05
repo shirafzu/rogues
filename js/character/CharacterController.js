@@ -448,9 +448,35 @@ class CharacterController {
       twoFingerRanged: this.inputState.twoFingerRanged,
     };
 
+    // 最終スワイプ判定（移動中やロングタップ中でも回避可能）
+    let isFinalSwipe = false;
+    let finalSwipeDx = dx;
+    let finalSwipeDy = dy;
+
+    if (this.inputState.recentPositions.length >= 2) {
+      const positions = this.inputState.recentPositions;
+      const firstPos = positions[0];
+      const lastPos = positions[positions.length - 1];
+      const timeDiff = lastPos.time - firstPos.time;
+
+      // 最後の150ms間の移動をチェック
+      if (timeDiff <= 150 && timeDiff > 0) {
+        const swipeDx = lastPos.x - firstPos.x;
+        const swipeDy = lastPos.y - firstPos.y;
+        const swipeDistance = Math.hypot(swipeDx, swipeDy);
+
+        // 60px以上の移動で最終スワイプと判定
+        if (swipeDistance >= 60) {
+          isFinalSwipe = true;
+          finalSwipeDx = swipeDx;
+          finalSwipeDy = swipeDy;
+        }
+      }
+    }
+
     // 入力判定の優先順位
-    // 1. タップ / 長押し判定（距離が短い）
-    if (distance <= tapMaxDistance) {
+    // 1. タップ / 長押し判定（距離が短い、かつ最終スワイプでない）
+    if (distance <= tapMaxDistance && !isFinalSwipe) {
       if (duration <= tapMaxDuration) {
         const executed = this.handleComboInput("tap", actionContext);
         if (!executed) {
@@ -464,18 +490,26 @@ class CharacterController {
         this.callbacks.onTapInput(worldPoint.x, worldPoint.y);
       }
     }
-    // 2. フリック（短時間・短距離）
-    else if (distance >= flickMinDistance && duration <= flickMaxDuration) {
-      const executed = this.handleComboInput("avoid", actionContext);
+    // 2. フリック / 最終スワイプ（回避）
+    else if ((distance >= flickMinDistance && duration <= flickMaxDuration) || isFinalSwipe) {
+      // 最終スワイプの場合は方向を更新
+      const avoidDx = isFinalSwipe ? finalSwipeDx : dx;
+      const avoidDy = isFinalSwipe ? finalSwipeDy : dy;
+      const avoidContext = {
+        ...actionContext,
+        direction: { x: avoidDx, y: avoidDy },
+      };
+
+      const executed = this.handleComboInput("avoid", avoidContext);
       if (!executed) {
-        this.triggerAbility("flick", { direction: { x: dx, y: dy } });
+        this.triggerAbility("flick", { direction: { x: avoidDx, y: avoidDy } });
       }
 
       // UI通知
       if (typeof this.callbacks.onFlickInput === "function") {
-        const len = Math.hypot(dx, dy);
-        const normalizedDx = len > 0 ? dx / len : 0;
-        const normalizedDy = len > 0 ? dy / len : 0;
+        const len = Math.hypot(avoidDx, avoidDy);
+        const normalizedDx = len > 0 ? avoidDx / len : 0;
+        const normalizedDy = len > 0 ? avoidDy / len : 0;
         this.callbacks.onFlickInput(this.sprite.x, this.sprite.y, normalizedDx, normalizedDy);
       }
     }
@@ -875,6 +909,7 @@ class CharacterController {
     this.inputState.actionCurrentPos = null;
     this.inputState.actionStartTime = 0;
     this.inputState.twoFingerRanged = false;
+    this.inputState.recentPositions = [];
   }
 
   clearActivePointer() {
