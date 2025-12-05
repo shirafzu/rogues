@@ -55,6 +55,7 @@ class CharacterController {
       actionStartTime: 0,
       lastActionKind: null,
       twoFingerRanged: false,
+      recentPositions: [], // 最近の位置履歴（最終スワイプ検出用）
     };
     this.rangedHoldPointerId = null;
     this.comboHoldContext = null;
@@ -348,11 +349,26 @@ class CharacterController {
   }
 
   handlePointerMove(pointer) {
+    const now = this.scene.time.now;
+
     if (pointer.id === this.inputState.activePointerId) {
       this.inputState.touchCurrentPos = { x: pointer.x, y: pointer.y };
     }
     if (pointer.id === this.inputState.actionPointerId) {
       this.inputState.actionCurrentPos = { x: pointer.x, y: pointer.y };
+
+      // 位置履歴を記録（最終スワイプ検出用）
+      this.inputState.recentPositions.push({
+        x: pointer.x,
+        y: pointer.y,
+        time: now,
+      });
+
+      // 200ms以上前の古いデータを削除
+      const cutoffTime = now - 200;
+      this.inputState.recentPositions = this.inputState.recentPositions.filter(
+        (pos) => pos.time > cutoffTime
+      );
     }
   }
 

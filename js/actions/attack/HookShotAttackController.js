@@ -7,6 +7,8 @@ class HookShotAttackController extends AttackController {
       indicatorColor: 0xb39ddb,
       indicatorAlpha: 0.5,
       yankEnemy: false,
+      pushEnemy: false,
+      pullEnemyOnly: false,
       ...config,
     });
   }
@@ -68,6 +70,34 @@ class HookShotAttackController extends AttackController {
     const travelDist = Math.min(dist, this.config.range);
     const duration = Math.min(420, (travelDist / (this.config.pullSpeed || 1)) * 100);
     const scene = this.character.scene;
+
+    // pushEnemyモード：プレイヤーは動かず、敵だけを突き飛ばす
+    if (this.config.pushEnemy && target && target.active) {
+      // ダメージを与える
+      if (scene.combatSystem) {
+        scene.combatSystem.damageEnemySprite(target, this.config.damage);
+      }
+      // 敵をフックの最大距離まで突き飛ばす
+      const pushTargetX = sprite.x + nx * this.config.range;
+      const pushTargetY = sprite.y + ny * this.config.range;
+      target.setPosition(pushTargetX, pushTargetY);
+      return;
+    }
+
+    // pullEnemyOnlyモード：プレイヤーは動かず、敵だけを引き寄せる
+    if (this.config.pullEnemyOnly && target && target.active) {
+      // ダメージを与える
+      if (scene.combatSystem) {
+        scene.combatSystem.damageEnemySprite(target, this.config.damage);
+      }
+      // 敵をプレイヤーの近くに引き寄せる
+      const pullOffset = this.config.forwardPullOffset ?? 60;
+      target.setPosition(
+        sprite.x + nx * pullOffset,
+        sprite.y + ny * pullOffset
+      );
+      return;
+    }
 
     sprite.setVelocity(nx * this.config.pullSpeed, ny * this.config.pullSpeed);
     scene.time.delayedCall(duration, () => {
